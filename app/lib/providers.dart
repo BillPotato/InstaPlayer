@@ -82,3 +82,13 @@ final playControllerProvider = Provider<PlayController?>((ref) {
     ref.watch(dbProvider),
   );
 });
+
+/// The MediaItem currently loaded in the player (null when nothing is playing).
+final currentMediaItemProvider = StreamProvider<MediaItem?>(
+    (ref) => ref.watch(audioHandlerProvider).mediaItem);
+
+/// Look up a local track by id; re-emits when the mirror changes.
+final trackByIdProvider = FutureProvider.family<LocalTrack?, String>((ref, id) {
+  ref.watch(tracksProvider);
+  return ref.watch(dbProvider).trackById(id);
+});

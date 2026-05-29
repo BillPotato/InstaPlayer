@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers.dart';
+import '../common/track_art_by_id.dart';
 import 'player_screen.dart';
 
 /// Compact playback bar shown above the bottom navigation.
@@ -27,7 +28,7 @@ class MiniPlayer extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
                 children: [
-                  const Icon(Icons.music_note),
+                  TrackArtById(trackId: item.id, size: 40),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

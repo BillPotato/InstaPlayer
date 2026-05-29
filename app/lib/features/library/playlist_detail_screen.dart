@@ -31,8 +31,17 @@ class PlaylistDetailScreen extends ConsumerWidget {
                     FilledButton.icon(
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('Play'),
-                      onPressed: () =>
-                          ref.read(playControllerProvider)?.playAll(list, 0),
+                      onPressed: () async {
+                        final controller = ref.read(playControllerProvider);
+                        if (controller == null) return;
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          await controller.playAll(list, 0);
+                        } catch (e) {
+                          messenger.showSnackBar(
+                              SnackBar(content: Text('Could not play: $e')));
+                        }
+                      },
                     ),
                     const SizedBox(width: 8),
                     OutlinedButton.icon(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../../providers.dart';
+import '../player/player_screen.dart';
 import 'track_art.dart';
 
 /// A single track row used in the library and playlist views. Tapping it starts
@@ -22,13 +23,43 @@ class TrackTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final currentId = ref.watch(currentMediaItemProvider).asData?.value?.id;
+    final isCurrent = currentId == track.id;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return ListTile(
       leading: TrackArt(track: track),
-      title: Text(track.title.isEmpty ? 'Unknown title' : track.title,
-          maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isCurrent) ...[
+            Icon(Icons.graphic_eq, size: 18, color: primary),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(
+              track.title.isEmpty ? 'Unknown title' : track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: isCurrent ? TextStyle(color: primary) : null,
+            ),
+          ),
+        ],
+      ),
       subtitle: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: _DownloadButton(track: track),
-      onTap: () => ref.read(playControllerProvider)?.playAll(queue, index),
+      onTap: () async {
+        final controller = ref.read(playControllerProvider);
+        if (controller == null) return;
+        final messenger = ScaffoldMessenger.of(context);
+        final navigator = Navigator.of(context);
+        try {
+          await controller.playAll(queue, index);
+          navigator.push(MaterialPageRoute(builder: (_) => const PlayerScreen()));
+        } catch (e) {
+          messenger.showSnackBar(SnackBar(content: Text('Could not play: $e')));
+        }
+      },
     );
   }
 }

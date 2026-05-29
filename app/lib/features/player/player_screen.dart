@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers.dart';
+import '../common/track_art_by_id.dart';
 
 class PlayerScreen extends ConsumerWidget {
   const PlayerScreen({super.key});
@@ -30,15 +31,7 @@ class PlayerScreen extends ConsumerWidget {
             child: Column(
               children: [
                 const Spacer(),
-                Container(
-                  width: 220,
-                  height: 220,
-                  decoration: BoxDecoration(
-                    color: Colors.white10,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.music_note, size: 96, color: Colors.white24),
-                ),
+                TrackArtById(trackId: item.id, size: 220),
                 const SizedBox(height: 24),
                 Text(item.title,
                     style: Theme.of(context).textTheme.titleLarge,
