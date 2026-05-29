@@ -1,11 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models.dart';
-import '../../providers.dart';
-import 'job_tracker.dart';
+import 'active_job.dart';
 
 class AddScreen extends ConsumerStatefulWidget {
   const AddScreen({super.key});
@@ -16,43 +13,24 @@ class AddScreen extends ConsumerStatefulWidget {
 
 class _AddScreenState extends ConsumerState<AddScreen> {
   final _url = TextEditingController();
-  JobTracker? _tracker;
-  StreamSubscription<JobDto>? _trackerSub;
-  JobDto? _job;
   String? _message;
   bool _submitting = false;
 
   @override
   void dispose() {
-    _trackerSub?.cancel();
-    _tracker?.dispose();
     _url.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    final api = ref.read(apiClientProvider);
-    if (api == null || _url.text.trim().isEmpty) return;
-    // Tear down any previous tracker before starting a new job.
-    _trackerSub?.cancel();
-    _tracker?.dispose();
+    final text = _url.text.trim();
+    if (text.isEmpty) return;
     setState(() {
       _submitting = true;
       _message = null;
-      _job = null;
     });
     try {
-      final job = await api.createJob(_url.text.trim());
-      setState(() => _job = job);
-
-      final tracker = JobTracker(api, job.id)..start();
-      _tracker = tracker;
-      _trackerSub = tracker.updates.listen((event) {
-        setState(() => _job = event);
-        if (event.status == 'completed' && event.completed > 0) {
-          ref.read(libraryRepoProvider)?.sync();
-        }
-      });
+      await ref.read(activeJobProvider.notifier).submit(text);
     } catch (e) {
       setState(() => _message = 'Failed to start: $e');
     } finally {
@@ -62,7 +40,7 @@ class _AddScreenState extends ConsumerState<AddScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final job = _job;
+    final job = ref.watch(activeJobProvider);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -90,6 +68,17 @@ class _AddScreenState extends ConsumerState<AddScreen> {
         if (job != null) ...[
           const SizedBox(height: 24),
           _JobProgress(job: job),
+          if (job.isTerminal) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () =>
+                    ref.read(activeJobProvider.notifier).clear(),
+                child: const Text('Dismiss'),
+              ),
+            ),
+          ],
         ],
       ],
     );
