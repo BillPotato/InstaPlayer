@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../../providers.dart';
-import '../player/player_screen.dart';
 import 'track_art.dart';
 
 /// A single track row used in the library and playlist views. Tapping it starts
@@ -48,14 +47,15 @@ class TrackTile extends ConsumerWidget {
       ),
       subtitle: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: _DownloadButton(track: track),
+      // Tapping a track just starts playback; the mini-player bar above the
+      // nav bar appears automatically (Spotify-style). Tap that bar to open
+      // the full Now Playing screen.
       onTap: () async {
         final controller = ref.read(playControllerProvider);
         if (controller == null) return;
         final messenger = ScaffoldMessenger.of(context);
-        final navigator = Navigator.of(context);
         try {
           await controller.playAll(queue, index);
-          navigator.push(MaterialPageRoute(builder: (_) => const PlayerScreen()));
         } catch (e) {
           messenger.showSnackBar(SnackBar(content: Text('Could not play: $e')));
         }
