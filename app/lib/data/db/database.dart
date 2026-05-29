@@ -24,9 +24,17 @@ class LocalTracks extends Table {
   IntColumn get fileSize => integer().withDefault(const Constant(0))();
   BoolColumn get hasArt => boolean().withDefault(const Constant(false))();
   BoolColumn get hasLyrics => boolean().withDefault(const Constant(false))();
+  // Lyrics text, stored locally so it works fully offline.
+  TextColumn get lyrics => text().nullable()();
+
+  // Where to fetch the audio/art from until it's downloaded: the (temporary)
+  // backend job and this track's index within that job's manifest.
+  TextColumn get remoteJobId => text().nullable()();
+  IntColumn get remoteIndex => integer().nullable()();
 
   // Offline state.
   TextColumn get localPath => text().nullable()();
+  TextColumn get localArtPath => text().nullable()();
   IntColumn get downloadState =>
       intEnum<DownloadState>().withDefault(const Constant(0))();
   IntColumn get downloadedBytes => integer().withDefault(const Constant(0))();
@@ -58,7 +66,23 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e]) : super(e ?? _open());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          // v1 stored a backend-mirrored library that streamed audio. v2 keeps
+          // everything on-device with a different shape, so old rows are
+          // incompatible — start from a clean slate (the user re-adds playlists).
+          if (from < 2) {
+            await m.deleteTable(localPlaylistTracks.actualTableName);
+            await m.deleteTable(localTracks.actualTableName);
+            await m.deleteTable(localPlaylists.actualTableName);
+            await m.createAll();
+          }
+        },
+      );
 
   // ---- queries used by the UI ----
   Stream<List<LocalTrack>> watchAllTracks() =>
@@ -98,17 +122,28 @@ class AppDatabase extends _$AppDatabase {
             t.downloadState.equals(DownloadState.failed.index)))
       .get();
 
+  /// A specific job's tracks that aren't on the device yet (any non-downloaded
+  /// state). Used to decide when a job's files can be deleted from the backend.
+  Future<List<LocalTrack>> tracksForJobNotDownloaded(String jobId) =>
+      (select(localTracks)
+            ..where((t) =>
+                t.remoteJobId.equals(jobId) &
+                t.downloadState.equals(DownloadState.downloaded.index).not()))
+          .get();
+
   Future<void> upsertTrack(LocalTracksCompanion track) =>
       into(localTracks).insertOnConflictUpdate(track);
 
   Future<void> setDownloadState(String id, DownloadState state,
-          {int? downloadedBytes, String? localPath}) =>
+          {int? downloadedBytes, String? localPath, String? localArtPath}) =>
       (update(localTracks)..where((t) => t.id.equals(id))).write(
         LocalTracksCompanion(
           downloadState: Value(state),
           downloadedBytes:
               downloadedBytes == null ? const Value.absent() : Value(downloadedBytes),
           localPath: localPath == null ? const Value.absent() : Value(localPath),
+          localArtPath:
+              localArtPath == null ? const Value.absent() : Value(localArtPath),
         ),
       );
 

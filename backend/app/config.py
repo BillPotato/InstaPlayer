@@ -28,23 +28,25 @@ class Settings(BaseSettings):
     # Per-track download retries before giving up (transient source failures).
     track_max_retries: int = 2
 
-    @property
-    def music_dir(self) -> Path:
-        return self.data_dir / "music"
+    # How long a finished job's files are kept for the device to fetch before
+    # the reaper deletes them. The backend stores nothing permanently.
+    job_retention_hours: float = 6.0
 
     @property
     def jobs_dir(self) -> Path:
-        # Scratch space where each job downloads before ingestion.
+        # Temporary per-job storage: SpotiFLAC downloads here, the device pulls
+        # the files, then the dir is deleted. This is the only place audio ever
+        # lives on the backend, and only transiently.
         return self.data_dir / "jobs"
 
     @property
     def database_url(self) -> str:
-        return f"sqlite:///{(self.data_dir / 'library.db').resolve()}"
+        # Only holds transient job status rows — never songs.
+        return f"sqlite:///{(self.data_dir / 'jobs.db').resolve()}"
 
 
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    settings.music_dir.mkdir(parents=True, exist_ok=True)
     settings.jobs_dir.mkdir(parents=True, exist_ok=True)
     return settings

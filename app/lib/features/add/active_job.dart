@@ -43,16 +43,30 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
     _sub = tracker.updates.listen((event) {
       state = event;
       if (event.status == 'completed' && event.completed > 0) {
-        _syncAndDownload();
+        _importAndDownload(event.id);
       }
     });
   }
 
-  /// Pull new metadata into the local mirror, then auto-download the new tracks
-  /// onto this device so the whole library stays available offline.
-  Future<void> _syncAndDownload() async {
-    await ref.read(libraryRepoProvider)?.sync();
-    await ref.read(downloadManagerProvider)?.downloadAllMissing();
+  /// Import the finished job's manifest into the local library, download its
+  /// tracks (audio + art) onto this device, then delete the job from the
+  /// backend once everything is local (the backend stores nothing permanently).
+  Future<void> _importAndDownload(String jobId) async {
+    final repo = ref.read(libraryRepoProvider);
+    final dm = ref.read(downloadManagerProvider);
+    final api = ref.read(apiClientProvider);
+    if (repo == null || dm == null || api == null) return;
+
+    await repo.importManifest(jobId);
+    final allDownloaded = await dm.downloadForJob(jobId);
+    if (allDownloaded) {
+      // Everything is on the device — release the backend's temp copy.
+      try {
+        await api.deleteJob(jobId);
+      } catch (_) {
+        // If cleanup fails the reaper will collect it later; not fatal.
+      }
+    }
   }
 
   /// Dismiss the current job card.

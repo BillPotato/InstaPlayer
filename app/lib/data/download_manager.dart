@@ -8,8 +8,9 @@ import 'package:path_provider/path_provider.dart';
 import '../core/api_client.dart';
 import 'db/database.dart';
 
-/// Downloads FLAC files for offline playback, resuming via HTTP Range so an
-/// interrupted transfer continues from the byte it stopped at.
+/// Downloads FLAC files (+ album art) from a backend job onto this device for
+/// offline playback. Audio transfers resume via HTTP Range. Once a track is
+/// downloaded it plays entirely from the local file — the backend keeps no copy.
 class DownloadManager {
   DownloadManager(this._api, this._db);
 
@@ -25,8 +26,14 @@ class DownloadManager {
     return dir;
   }
 
+  // Track ids can contain ':' (e.g. "isrc:US..."), illegal in filenames.
+  String _safeName(String trackId) => trackId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
+
   Future<File> fileFor(String trackId) async =>
-      File(p.join((await _musicDir()).path, '$trackId.flac'));
+      File(p.join((await _musicDir()).path, '${_safeName(trackId)}.flac'));
+
+  Future<File> _artFileFor(String trackId) async =>
+      File(p.join((await _musicDir()).path, '${_safeName(trackId)}.art'));
 
   /// Returns true when the track's FLAC is fully present on this device.
   Future<bool> isDownloaded(String trackId) async {
@@ -35,10 +42,20 @@ class DownloadManager {
     return File(track!.localPath!).existsSync();
   }
 
-  /// Download a single track, resuming if a partial file exists.
+  /// Download a single track's audio (+ art) from its backend job, resuming the
+  /// audio if a partial file exists.
   Future<void> download(String trackId, {void Function(int received, int total)? onProgress}) async {
-    final partFile = File('${(await fileFor(trackId)).path}.part');
+    final track = await _db.trackById(trackId);
+    if (track == null) throw StateError('Unknown track $trackId');
+    final jobId = track.remoteJobId;
+    final n = track.remoteIndex;
+    if (jobId == null || n == null) {
+      await _db.setDownloadState(trackId, DownloadState.failed);
+      throw StateError('Track has no remote source — re-add the playlist');
+    }
+
     final finalFile = await fileFor(trackId);
+    final partFile = File('${finalFile.path}.part');
     final existing = partFile.existsSync() ? partFile.lengthSync() : 0;
 
     await _db.setDownloadState(trackId, DownloadState.downloading,
@@ -47,12 +64,11 @@ class DownloadManager {
     final sink = partFile.openWrite(mode: FileMode.append);
     try {
       final response = await _api.raw.get<ResponseBody>(
-        '/tracks/$trackId/file',
+        '/jobs/$jobId/files/$n',
         options: Options(
           responseType: ResponseType.stream,
           headers: {if (existing > 0) 'Range': 'bytes=$existing-'},
-          // 206 (partial) and 200 (full) are both acceptable.
-          validateStatus: (s) => s != null && s < 400,
+          validateStatus: (s) => s != null && s < 400, // 200 or 206
         ),
       );
 
@@ -67,14 +83,36 @@ class DownloadManager {
       }
       await sink.flush();
       await sink.close();
-
       await partFile.rename(finalFile.path);
+
+      // Album art is best-effort: a missing/failed art fetch doesn't fail the track.
+      final artPath = track.hasArt ? await _downloadArt(trackId, jobId, n) : null;
+
       await _db.setDownloadState(trackId, DownloadState.downloaded,
-          downloadedBytes: received, localPath: finalFile.path);
+          downloadedBytes: received, localPath: finalFile.path, localArtPath: artPath);
     } catch (e) {
       await sink.close();
       await _db.setDownloadState(trackId, DownloadState.failed);
       rethrow;
+    }
+  }
+
+  Future<String?> _downloadArt(String trackId, String jobId, int n) async {
+    try {
+      final r = await _api.raw.get<List<int>>(
+        '/jobs/$jobId/art/$n',
+        options: Options(
+          responseType: ResponseType.bytes,
+          validateStatus: (s) => s != null && s < 400,
+        ),
+      );
+      final bytes = r.data;
+      if (bytes == null || bytes.isEmpty) return null;
+      final artFile = await _artFileFor(trackId);
+      await artFile.writeAsBytes(bytes);
+      return artFile.path;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -83,43 +121,52 @@ class DownloadManager {
     if (file.existsSync()) file.deleteSync();
     final part = File('${file.path}.part');
     if (part.existsSync()) part.deleteSync();
-    await _db.setDownloadState(trackId, DownloadState.notDownloaded,
-        downloadedBytes: 0, localPath: '');
-    // Clear localPath explicitly (empty string above signals "none").
+    final art = await _artFileFor(trackId);
+    if (art.existsSync()) art.deleteSync();
+    await _db.setDownloadState(trackId, DownloadState.notDownloaded, downloadedBytes: 0);
+    // Clear the path columns explicitly.
     await (_db.update(_db.localTracks)..where((t) => t.id.equals(trackId)))
-        .write(const LocalTracksCompanion(localPath: Value(null)));
+        .write(const LocalTracksCompanion(
+            localPath: Value(null), localArtPath: Value(null)));
   }
 
-  /// Pull every track that isn't on this device yet, [concurrency] at a time,
-  /// so the whole library becomes available offline. Safe to call repeatedly —
-  /// it no-ops while a batch is already running and skips already-downloaded
-  /// tracks. Individual failures are left in the `failed` state for retry and
-  /// don't abort the batch.
+  Future<void> _runBatch(List<LocalTrack> pending, {int concurrency = 3}) async {
+    if (pending.isEmpty) return;
+    for (final t in pending) {
+      await _db.setDownloadState(t.id, DownloadState.queued);
+    }
+    final queue = List<LocalTrack>.of(pending);
+    Future<void> worker() async {
+      while (queue.isNotEmpty) {
+        final t = queue.removeAt(0); // sync check+remove → no race
+        try {
+          await download(t.id);
+        } catch (_) {
+          // download() already set the row to failed; keep going.
+        }
+      }
+    }
+    await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
+  }
+
+  /// Pull every track that isn't on this device yet, a few at a time. Safe to
+  /// call repeatedly — it no-ops while a batch is already running.
   Future<void> downloadAllMissing({int concurrency = 3}) async {
     if (_batchRunning) return;
     _batchRunning = true;
     try {
-      final pending = await _db.tracksNeedingDownload();
-      if (pending.isEmpty) return;
-      // Mark queued up front so every row shows a spinner immediately.
-      for (final t in pending) {
-        await _db.setDownloadState(t.id, DownloadState.queued);
-      }
-      final queue = List<LocalTrack>.of(pending);
-      Future<void> worker() async {
-        while (queue.isNotEmpty) {
-          final t = queue.removeAt(0); // sync check+remove → no race
-          try {
-            await download(t.id);
-          } catch (_) {
-            // download() already set the row to failed; keep going.
-          }
-        }
-      }
-      await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
+      await _runBatch(await _db.tracksNeedingDownload(), concurrency: concurrency);
     } finally {
       _batchRunning = false;
     }
+  }
+
+  /// Download all of one job's tracks. Returns true if every track ended up on
+  /// the device (so the caller can safely DELETE the job from the backend).
+  Future<bool> downloadForJob(String jobId, {int concurrency = 3}) async {
+    await _runBatch(await _db.tracksForJobNotDownloaded(jobId), concurrency: concurrency);
+    final remaining = await _db.tracksForJobNotDownloaded(jobId);
+    return remaining.isEmpty;
   }
 
   /// Total bytes used by downloaded FLACs on this device.

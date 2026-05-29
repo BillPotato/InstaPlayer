@@ -4,8 +4,9 @@ import '../core/api_client.dart';
 import 'db/database.dart';
 import 'models.dart';
 
-/// Syncs backend metadata into the local drift mirror and exposes it to the UI.
-/// The UI always reads from drift so the app works fully offline.
+/// Imports a finished backend job's manifest into the local drift library.
+/// The device's drift DB is the only permanent library; the UI reads from it
+/// so the app works fully offline once files are downloaded.
 class LibraryRepository {
   LibraryRepository(this._api, this._db);
 
@@ -17,8 +18,34 @@ class LibraryRepository {
   Future<List<LocalTrack>> playlistTracks(String id) => _db.playlistTracks(id);
   Future<LocalTrack?> track(String id) => _db.trackById(id);
 
-  LocalTracksCompanion _toCompanion(TrackDto t) => LocalTracksCompanion(
-        id: Value(t.id),
+  /// Stable local id for a manifest track: prefer the ISRC (so the same
+  /// recording added via different playlists de-dupes), else fall back to the
+  /// job id + index.
+  String _trackId(String jobId, ManifestTrackDto t) =>
+      (t.isrc != null && t.isrc!.isNotEmpty) ? 'isrc:${t.isrc}' : '$jobId:${t.n}';
+
+  /// Pull a finished job's manifest into the local library: create a playlist,
+  /// upsert each track's metadata (preserving any existing download state), and
+  /// link them. Audio/art are NOT fetched here — see DownloadManager.
+  /// Returns the local playlist id.
+  Future<String> importManifest(String jobId) async {
+    final manifest = await _api.manifest(jobId);
+
+    await _db.into(_db.localPlaylists).insertOnConflictUpdate(
+          LocalPlaylistsCompanion(
+            id: Value(jobId),
+            name: Value(manifest.name),
+            spotifyUrl: Value(manifest.spotifyUrl),
+          ),
+        );
+
+    var position = 0;
+    for (final t in manifest.tracks) {
+      final id = _trackId(jobId, t);
+      // Only metadata + remote source here; download-state columns are left
+      // absent so an already-downloaded copy keeps its local files.
+      await _db.upsertTrack(LocalTracksCompanion(
+        id: Value(id),
         isrc: Value(t.isrc),
         title: Value(t.title),
         artist: Value(t.artist),
@@ -30,44 +57,19 @@ class LibraryRepository {
         quality: Value(t.quality),
         fileSize: Value(t.fileSize),
         hasArt: Value(t.hasArt),
-        hasLyrics: Value(t.hasLyrics),
-      );
-
-  /// Pull the full backend library into the local mirror. Existing download
-  /// state is preserved because insertOnConflictUpdate only touches the columns
-  /// present in the companion (download columns are left absent here).
-  Future<void> sync() async {
-    final playlists = await _api.playlists();
-    await _db.batch((b) {
-      for (final pl in playlists) {
-        b.insert(
-          _db.localPlaylists,
-          LocalPlaylistsCompanion(
-            id: Value(pl.id),
-            name: Value(pl.name),
-            spotifyUrl: Value(pl.spotifyUrl),
-          ),
-          onConflict: DoUpdate((_) => LocalPlaylistsCompanion(
-                name: Value(pl.name),
-                spotifyUrl: Value(pl.spotifyUrl),
-              )),
-        );
-      }
-    });
-
-    for (final pl in playlists) {
-      final tracks = await _api.playlistTracks(pl.id);
-      var position = 0;
-      for (final t in tracks) {
-        await _db.upsertTrack(_toCompanion(t));
-        await _db.into(_db.localPlaylistTracks).insertOnConflictUpdate(
-              LocalPlaylistTracksCompanion(
-                playlistId: Value(pl.id),
-                trackId: Value(t.id),
-                position: Value(position++),
-              ),
-            );
-      }
+        hasLyrics: Value(t.lyrics != null && t.lyrics!.isNotEmpty),
+        lyrics: Value(t.lyrics),
+        remoteJobId: Value(jobId),
+        remoteIndex: Value(t.n),
+      ));
+      await _db.into(_db.localPlaylistTracks).insertOnConflictUpdate(
+            LocalPlaylistTracksCompanion(
+              playlistId: Value(jobId),
+              trackId: Value(id),
+              position: Value(position++),
+            ),
+          );
     }
+    return jobId;
   }
 }

@@ -54,17 +54,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   void initState() {
     super.initState();
-    // Best-effort sync + auto-offline download on launch; no-op when offline.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncAndDownload());
-  }
-
-  Future<void> _syncAndDownload() async {
-    try {
-      await ref.read(libraryRepoProvider)?.sync();
-      await ref.read(downloadManagerProvider)?.downloadAllMissing();
-    } catch (_) {
-      // Offline / backend unreachable at launch is fine — local files still play.
-    }
+    // Resume any downloads that didn't finish last session (best-effort; the
+    // backend job may still be alive within its retention window).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(downloadManagerProvider)?.downloadAllMissing().ignore();
+    });
   }
 
   @override

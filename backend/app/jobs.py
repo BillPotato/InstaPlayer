@@ -1,27 +1,32 @@
 """In-process async job manager.
 
 SpotiFLAC is a blocking, opaque call, so each job:
-  1. runs SpotiFLAC in a thread executor into a per-job scratch dir,
+  1. runs SpotiFLAC in a thread executor into a per-job dir,
   2. concurrently watches that dir and publishes a coarse progress count,
-  3. ingests the produced FLACs into the library on completion.
+  3. builds a manifest (metadata + art sidecars) the device pulls from.
 
-Progress is broadcast to WebSocket subscribers via per-job asyncio queues.
-For a single user this is plenty; swap in RQ/Redis + a real worker to scale out.
+The job dir is then retained until the device has fetched everything and calls
+DELETE /jobs/{id} (or the reaper deletes it after job_retention_hours). The
+backend keeps no permanent copy of any song.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import shutil
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from .config import Settings, get_settings
 from .db import SessionLocal
-from .ingest import ingest_directory, scan_flacs
-from .models import Job, Playlist
+from .ingest import build_manifest, scan_flacs
+from .models import Job
 from .spotiflac_adapter import SpotiFlacError, run_spotiflac
+
+log = logging.getLogger(__name__)
 
 
 class JobManager:
@@ -69,11 +74,9 @@ class JobManager:
         with SessionLocal() as session:
             job = session.get(Job, job_id)
             if job is None:
-                # Job row went missing (e.g. manual DB clear) — emit the event
-                # anyway so any open WebSocket subscribers get a terminal state.
                 return {"type": "status", "jobId": job_id, "status": "failed",
                         "completed": 0, "total": 0, "current": None,
-                        "error": "Job record not found", "playlistId": None}
+                        "error": "Job record not found"}
             for key, value in fields.items():
                 setattr(job, key, value)
             session.commit()
@@ -85,17 +88,12 @@ class JobManager:
                 "total": job.total,
                 "current": job.current,
                 "error": job.error,
-                "playlistId": job.playlist_id,
             }
         self._publish(job_id, event)
         return event
 
     async def _watch(self, job_id: str, job_dir: Path, progress: dict[str, Any]) -> None:
-        """Poll the scratch dir + shared progress and publish status updates.
-
-        ``progress`` is mutated from the SpotiFLAC worker thread (total/current);
-        the file count is the authoritative ``completed`` value.
-        """
+        """Poll the job dir + shared progress and publish status updates."""
         last: tuple | None = None
         try:
             while True:
@@ -122,9 +120,6 @@ class JobManager:
             services = self._services(job.preferred_source)
 
         self._set_status(job_id, status="running")
-
-        # Shared, thread-safe-enough holder: the worker thread only assigns to
-        # these keys, the event loop only reads them.
         progress: dict[str, Any] = {"total": None, "current": None}
 
         def on_progress(update: dict[str, Any]) -> None:
@@ -147,62 +142,76 @@ class JobManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
 
-            # Ingest into the library (also blocking-ish; run in executor).
-            count = await loop.run_in_executor(None, self._ingest, job_id, job_dir)
+            # Build the manifest (blocking-ish) the device will fetch from.
+            manifest = await loop.run_in_executor(
+                None, build_manifest, job_dir, spotify_url
+            )
+            count = manifest["trackCount"]
             total = progress.get("total") or count
             if count == 0:
+                # Nothing downloaded — drop the empty dir, report clearly.
+                shutil.rmtree(job_dir, ignore_errors=True)
                 self._set_status(
-                    job_id,
-                    status="completed",
-                    total=total,
-                    completed=0,
+                    job_id, status="completed", total=total, completed=0,
                     current=None,
                     error="No tracks could be downloaded — all sources failed. "
                     "Try again later.",
                 )
             else:
+                # Keep the dir; the device pulls from it, then DELETEs the job.
                 self._set_status(
-                    job_id,
-                    status="completed",
-                    total=total,
-                    completed=count,
-                    current=None,
-                    error=None,
+                    job_id, status="completed", total=total, completed=count,
+                    current=None, error=None,
                 )
         except SpotiFlacError as exc:
             watcher.cancel()
+            shutil.rmtree(job_dir, ignore_errors=True)
             self._set_status(job_id, status="failed", current=None, error=str(exc))
         except Exception as exc:  # pragma: no cover - defensive
             watcher.cancel()
+            shutil.rmtree(job_dir, ignore_errors=True)
             self._set_status(
                 job_id, status="failed", current=None, error=f"Unexpected error: {exc}"
             )
-        finally:
-            shutil.rmtree(job_dir, ignore_errors=True)
 
-    def _ingest(self, job_id: str, job_dir: Path) -> int:
-        # Don't create an empty playlist when nothing downloaded.
-        if not scan_flacs(job_dir):
-            return 0
+    def delete_job(self, job_id: str) -> None:
+        """Device finished pulling: delete the files and the job row."""
+        shutil.rmtree(self.settings.jobs_dir / job_id, ignore_errors=True)
+        self._last_event.pop(job_id, None)
         with SessionLocal() as session:
             job = session.get(Job, job_id)
-            playlist = Playlist(spotify_url=job.spotify_url, name=_playlist_name(job_dir))
-            session.add(playlist)
-            session.flush()
-            job.playlist_id = playlist.id
-            session.commit()
-            count = ingest_directory(session, job_dir, playlist, self.settings)
-        return count
+            if job is not None:
+                session.delete(job)
+                session.commit()
 
+    async def reaper(self) -> None:
+        """Periodically delete abandoned job dirs older than the retention TTL."""
+        while True:
+            try:
+                await asyncio.sleep(1800)  # every 30 min
+                self._reap_once()
+            except asyncio.CancelledError:
+                return
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Reaper pass failed")
 
-def _playlist_name(job_dir: Path) -> str:
-    files = scan_flacs(job_dir)
-    if files:
-        # SpotiFLAC writes album/playlist sub-folders; use the top-level one.
-        rel = files[0].relative_to(job_dir)
-        if len(rel.parts) > 1:
-            return rel.parts[0]
-    return "Imported playlist"
+    def _reap_once(self) -> None:
+        # Use filesystem mtime (robust across SQLite tz handling): any job dir
+        # untouched for longer than the retention window is abandoned.
+        jobs_dir = self.settings.jobs_dir
+        if not jobs_dir.exists():
+            return
+        cutoff = time.time() - self.settings.job_retention_hours * 3600
+        with SessionLocal() as session:
+            for child in jobs_dir.iterdir():
+                if not child.is_dir() or child.stat().st_mtime >= cutoff:
+                    continue
+                log.info("Reaping abandoned job dir %s", child.name)
+                shutil.rmtree(child, ignore_errors=True)
+                job = session.get(Job, child.name)
+                if job is not None:
+                    session.delete(job)
+                    session.commit()
 
 
 _manager: JobManager | None = None
