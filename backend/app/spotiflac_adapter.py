@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+log = logging.getLogger(__name__)
+
 ProgressCb = Callable[[dict[str, Any]], None]
 
 _FOUND_RE = re.compile(r"Found\s+(\d+)\s+track", re.IGNORECASE)
@@ -84,29 +86,44 @@ def run_spotiflac(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _download() -> None:
-        SpotiFLAC(
+    def _download(include_retries: bool = True) -> None:
+        kwargs: dict[str, Any] = dict(
             url=url,
             output_dir=str(output_dir),
             services=services,
             quality=quality,
-            allow_fallback=True,  # fall through the source list on per-track failure
-            track_max_retries=track_max_retries,
+            allow_fallback=True,
             embed_lyrics=True,
             enrich_metadata=True,
             qobuz_token=qobuz_token,
             log_level=logging.INFO,
         )
+        if include_retries:
+            kwargs["track_max_retries"] = track_max_retries
+        SpotiFLAC(**kwargs)
+
+    def _run_download() -> None:
+        try:
+            _download(include_retries=True)
+        except TypeError as te:
+            # Older SpotiFLAC versions don't accept track_max_retries.
+            if "track_max_retries" in str(te):
+                log.warning(
+                    "SpotiFLAC: track_max_retries not supported in this version, retrying without it"
+                )
+                _download(include_retries=False)
+            else:
+                raise
 
     try:
         if progress_cb is None:
-            _download()
+            _run_download()
         else:
             on_line = lambda line: _parse_line(line, progress_cb)  # noqa: E731
             # Tee both streams: "Found N" is printed to stdout, "Trying:" is
             # logged to stderr. Single-user backend → global redirect is fine.
             with contextlib.redirect_stdout(_ProgressTee(sys.stdout, on_line)), \
                     contextlib.redirect_stderr(_ProgressTee(sys.stderr, on_line)):
-                _download()
+                _run_download()
     except Exception as exc:
         raise SpotiFlacError(f"SpotiFLAC download failed: {exc}") from exc

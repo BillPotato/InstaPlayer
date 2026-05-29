@@ -68,6 +68,12 @@ class JobManager:
     def _set_status(self, job_id: str, **fields: Any) -> dict[str, Any]:
         with SessionLocal() as session:
             job = session.get(Job, job_id)
+            if job is None:
+                # Job row went missing (e.g. manual DB clear) — emit the event
+                # anyway so any open WebSocket subscribers get a terminal state.
+                return {"type": "status", "jobId": job_id, "status": "failed",
+                        "completed": 0, "total": 0, "current": None,
+                        "error": "Job record not found", "playlistId": None}
             for key, value in fields.items():
                 setattr(job, key, value)
             session.commit()

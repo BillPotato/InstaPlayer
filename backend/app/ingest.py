@@ -5,7 +5,9 @@ mutagen, so we never depend on SpotiFLAC returning structured data.
 """
 from __future__ import annotations
 
+import logging
 import shutil
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .models import Playlist, PlaylistTrack, Track, _uuid
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,6 +55,8 @@ def _as_int(value: str | None) -> int | None:
 
 
 def scan_flacs(directory: Path) -> list[Path]:
+    if not directory.exists():
+        return []
     return sorted(p for p in directory.rglob("*.flac") if p.is_file())
 
 
@@ -78,8 +84,25 @@ def parse_flac(path: Path) -> FlacMeta:
 
 
 def _safe_name(name: str) -> str:
-    keep = "".join(c for c in name if c.isalnum() or c in " -_().").strip()
-    return keep or "untitled"
+    """Return a filesystem-safe directory name that preserves Unicode text.
+
+    Strategy:
+    1. NFKC normalise (collapse compatibility variants).
+    2. Strip characters that are problematic on Windows/Linux (control chars,
+       path separators, null bytes, leading/trailing dots and spaces).
+    3. Truncate to 80 chars.
+    4. Fall back to "untitled" if nothing is left.
+
+    The file itself is always named by track ID so collisions are impossible
+    even if two albums produce the same sanitised folder name.
+    """
+    # NFKC normalisation keeps CJK, Arabic, Cyrillic, etc. intact.
+    name = unicodedata.normalize("NFKC", name)
+    # Remove characters that are banned or cause trouble on any OS.
+    banned = set('\x00/\\:*?"<>|\t\n\r\x0b\x0c')
+    name = "".join(c for c in name if c not in banned and not unicodedata.category(c).startswith("C"))
+    name = name.strip(". ")
+    return name[:80] or "untitled"
 
 
 def ingest_track(session: Session, meta: FlacMeta, settings: Settings) -> Track:
@@ -109,6 +132,7 @@ def ingest_track(session: Session, meta: FlacMeta, settings: Settings) -> Track:
 
     album_dir = settings.music_dir / _safe_name(meta.album or "singles")
     album_dir.mkdir(parents=True, exist_ok=True)
+    # File is always named by unique track ID, so no collision is possible.
     dest = album_dir / f"{track.id}.flac"
     shutil.move(str(meta.src_path), str(dest))
     track.file_path = str(dest)
@@ -144,12 +168,23 @@ def ingest_directory(
 ) -> int:
     """Ingest every FLAC under ``directory`` into the library + playlist.
 
-    Returns the number of files processed.
+    Each file is wrapped in its own try/except: a corrupt or unreadable FLAC
+    is logged and skipped so that one bad file can't abort the whole job.
+    Returns the number of files successfully ingested.
     """
     files = scan_flacs(directory)
+    ingested = 0
     for position, path in enumerate(files):
-        meta = parse_flac(path)
-        track = ingest_track(session, meta, settings)
-        link_to_playlist(session, playlist, track, position)
-        session.commit()
-    return len(files)
+        try:
+            meta = parse_flac(path)
+            track = ingest_track(session, meta, settings)
+            link_to_playlist(session, playlist, track, position)
+            session.commit()
+            ingested += 1
+        except Exception:
+            log.exception("Failed to ingest %s — skipping", path)
+            try:
+                session.rollback()
+            except Exception:
+                pass
+    return ingested

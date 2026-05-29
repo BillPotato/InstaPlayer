@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class TrackOut(BaseModel):
@@ -56,3 +56,16 @@ class JobOut(BaseModel):
 class JobCreate(BaseModel):
     spotifyUrl: str
     preferredSource: str | None = None
+
+    @field_validator("spotifyUrl")
+    @classmethod
+    def validate_spotify_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("spotifyUrl must not be empty")
+        if "spotify.com/" not in v and not v.startswith("spotify:"):
+            raise ValueError(
+                "spotifyUrl must be a Spotify URL (https://open.spotify.com/...) "
+                "or Spotify URI (spotify:...)"
+            )
+        return v

@@ -40,9 +40,31 @@ def test_unknown_track_404():
     assert client.get("/tracks/nope", headers=AUTH).status_code == 404
 
 
+def test_job_create_validates_url():
+    """Empty / non-Spotify URLs should return 422, not 500."""
+    for bad in ["", "https://example.com/not-spotify", "   "]:
+        r = client.post("/jobs", headers=AUTH, json={"spotifyUrl": bad})
+        assert r.status_code == 422, f"Expected 422 for {bad!r}, got {r.status_code}"
+
+    # Valid Spotify URL → 422 too (SpotiFLAC not importable in tests) but NOT
+    # a path-level validation error — the payload should be accepted by Pydantic.
+    r = client.post("/jobs", headers=AUTH,
+                    json={"spotifyUrl": "https://open.spotify.com/playlist/abc"})
+    # Will be 500 (SpotiFLAC not installed) but NOT 422 (URL was valid).
+    assert r.status_code != 422
+
+
+def test_schema_migration_idempotent():
+    """Running init_db() twice must not raise (migration is safe to re-run)."""
+    from app.db import init_db as _init
+    _init()  # second call — must be a no-op
+
+
 if __name__ == "__main__":
     test_health()
     test_auth_required()
     test_empty_library()
     test_unknown_track_404()
+    test_job_create_validates_url()
+    test_schema_migration_idempotent()
     print("all smoke tests passed")

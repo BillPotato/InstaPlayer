@@ -1,11 +1,15 @@
 """FastAPI application: jobs, library browsing, and file/art/lyrics serving."""
 from __future__ import annotations
 
+import logging
+import traceback
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, PlainTextResponse
-from sqlalchemy import func, select
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from sqlalchemy import select
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .auth import require_auth
@@ -15,12 +19,29 @@ from .jobs import JobManager, get_job_manager
 from .models import Job, Playlist, PlaylistTrack, Track
 from .schemas import JobCreate, JobOut, PlaylistOut, TrackOut
 
-app = FastAPI(title="Music App Backend", version="0.1.0")
+log = logging.getLogger(__name__)
 
 
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ANN001
     init_db()
+    yield
+
+
+app = FastAPI(title="Music App Backend", version="0.1.0", lifespan=lifespan)
+
+
+# --------------------------------------------------------------------------
+# Global error handler — always return JSON so clients can parse the error.
+# --------------------------------------------------------------------------
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    log.error("Unhandled exception on %s %s: %s", request.method, request.url.path,
+              "".join(traceback.format_exception(exc)))
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {exc}"},
+    )
 
 
 @app.get("/health")
@@ -38,7 +59,13 @@ async def create_job(
     session: Session = Depends(get_session),
 ) -> Job:
     job_id = await manager.submit(payload.spotifyUrl, payload.preferredSource)
-    return session.get(Job, job_id)
+    # Use an explicit SELECT rather than session.get() to guarantee we hit the
+    # DB (not just the identity map) after the job was committed in a separate
+    # session inside submit().
+    job = session.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(500, detail="Job was created but could not be retrieved")
+    return job
 
 
 @app.get("/jobs/{job_id}", response_model=JobOut, dependencies=[Depends(require_auth)])
@@ -114,7 +141,7 @@ def playlist_tracks(playlist_id: str, session: Session = Depends(get_session)) -
     playlist = session.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(404, "Playlist not found")
-    return [_track_out(link.track) for link in playlist.track_links]
+    return [_track_out(link.track) for link in playlist.track_links if link.track is not None]
 
 
 @app.get("/tracks", response_model=list[TrackOut], dependencies=[Depends(require_auth)])
@@ -145,7 +172,8 @@ def get_track_file(track_id: str, session: Session = Depends(get_session)) -> Fi
         raise HTTPException(410, "File missing on server")
     # Starlette's FileResponse honours the Range header → 206 Partial Content,
     # which is what the client's resumable downloader relies on.
-    return FileResponse(path, media_type=track.mime, filename=f"{track.title}.flac")
+    safe_filename = "".join(c for c in track.title if c.isalnum() or c in " -_.")[:100] or track.id
+    return FileResponse(path, media_type=track.mime, filename=f"{safe_filename}.flac")
 
 
 @app.get("/tracks/{track_id}/art", dependencies=[Depends(require_auth)])
