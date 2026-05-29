@@ -89,6 +89,15 @@ class AppDatabase extends _$AppDatabase {
         ]))
       .get();
 
+  /// Tracks not yet stored on this device (for auto-offline download).
+  /// Includes never-downloaded and previously-failed; excludes downloaded and
+  /// in-flight (queued/downloading) so repeated calls don't double-queue.
+  Future<List<LocalTrack>> tracksNeedingDownload() => (select(localTracks)
+        ..where((t) =>
+            t.downloadState.equals(DownloadState.notDownloaded.index) |
+            t.downloadState.equals(DownloadState.failed.index)))
+      .get();
+
   Future<void> upsertTrack(LocalTracksCompanion track) =>
       into(localTracks).insertOnConflictUpdate(track);
 

@@ -43,10 +43,16 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
     _sub = tracker.updates.listen((event) {
       state = event;
       if (event.status == 'completed' && event.completed > 0) {
-        // Pull the newly downloaded tracks into the local mirror.
-        ref.read(libraryRepoProvider)?.sync();
+        _syncAndDownload();
       }
     });
+  }
+
+  /// Pull new metadata into the local mirror, then auto-download the new tracks
+  /// onto this device so the whole library stays available offline.
+  Future<void> _syncAndDownload() async {
+    await ref.read(libraryRepoProvider)?.sync();
+    await ref.read(downloadManagerProvider)?.downloadAllMissing();
   }
 
   /// Dismiss the current job card.

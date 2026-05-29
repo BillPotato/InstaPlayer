@@ -16,6 +16,8 @@ class DownloadManager {
   final ApiClient _api;
   final AppDatabase _db;
 
+  bool _batchRunning = false;
+
   Future<Directory> _musicDir() async {
     final base = await getApplicationSupportDirectory();
     final dir = Directory(p.join(base.path, 'music'));
@@ -86,6 +88,38 @@ class DownloadManager {
     // Clear localPath explicitly (empty string above signals "none").
     await (_db.update(_db.localTracks)..where((t) => t.id.equals(trackId)))
         .write(const LocalTracksCompanion(localPath: Value(null)));
+  }
+
+  /// Pull every track that isn't on this device yet, [concurrency] at a time,
+  /// so the whole library becomes available offline. Safe to call repeatedly —
+  /// it no-ops while a batch is already running and skips already-downloaded
+  /// tracks. Individual failures are left in the `failed` state for retry and
+  /// don't abort the batch.
+  Future<void> downloadAllMissing({int concurrency = 3}) async {
+    if (_batchRunning) return;
+    _batchRunning = true;
+    try {
+      final pending = await _db.tracksNeedingDownload();
+      if (pending.isEmpty) return;
+      // Mark queued up front so every row shows a spinner immediately.
+      for (final t in pending) {
+        await _db.setDownloadState(t.id, DownloadState.queued);
+      }
+      final queue = List<LocalTrack>.of(pending);
+      Future<void> worker() async {
+        while (queue.isNotEmpty) {
+          final t = queue.removeAt(0); // sync check+remove → no race
+          try {
+            await download(t.id);
+          } catch (_) {
+            // download() already set the row to failed; keep going.
+          }
+        }
+      }
+      await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
+    } finally {
+      _batchRunning = false;
+    }
   }
 
   /// Total bytes used by downloaded FLACs on this device.
