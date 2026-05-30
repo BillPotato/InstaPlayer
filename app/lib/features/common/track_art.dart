@@ -15,12 +15,6 @@ class TrackArt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = track.localArtPath;
-    final placeholder = Container(
-      width: size,
-      height: size,
-      color: Colors.white12,
-      child: Icon(Icons.music_note, size: size * 0.5, color: Colors.white38),
-    );
     final hasFile = path != null && path.isNotEmpty && File(path).existsSync();
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
@@ -30,9 +24,16 @@ class TrackArt extends StatelessWidget {
               width: size,
               height: size,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => placeholder,
+              errorBuilder: (context, error, stackTrace) => _placeholder(size),
             )
-          : placeholder,
+          : _placeholder(size),
     );
   }
 }
+
+Widget _placeholder(double size) => Container(
+      width: size,
+      height: size,
+      color: Colors.white12,
+      child: Icon(Icons.music_note, size: size * 0.5, color: Colors.white38),
+    );

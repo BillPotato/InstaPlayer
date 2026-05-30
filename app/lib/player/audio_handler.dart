@@ -4,9 +4,8 @@ import 'package:just_audio/just_audio.dart';
 /// Bridges just_audio to audio_service so playback survives backgrounding and
 /// shows lock-screen / notification controls.
 ///
-/// Each [MediaItem] carries its source in `extras`:
-///   - `localPath`: absolute file path when the track is downloaded, else
-///   - `url` + `headers`: stream straight from the backend (authenticated).
+/// Each [MediaItem] carries its source in `extras['localPath']` — the absolute
+/// path of the downloaded FLAC on this device (the only place audio lives).
 class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   MusicAudioHandler() {
     _player.playbackEventStream.map(_toPlaybackState).pipe(playbackState);
@@ -23,13 +22,9 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   AudioPlayer get player => _player;
 
   AudioSource _toSource(MediaItem item) {
-    final localPath = item.extras?['localPath'] as String?;
-    if (localPath != null && localPath.isNotEmpty) {
-      return AudioSource.file(localPath, tag: item);
-    }
-    final url = item.extras!['url'] as String;
-    final headers = (item.extras!['headers'] as Map).cast<String, String>();
-    return AudioSource.uri(Uri.parse(url), headers: headers, tag: item);
+    // Tracks are always played from the downloaded local file.
+    final localPath = item.extras!['localPath'] as String;
+    return AudioSource.file(localPath, tag: item);
   }
 
   /// Replace the queue and start playing at [initialIndex].

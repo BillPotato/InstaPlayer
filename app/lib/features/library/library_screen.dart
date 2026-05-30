@@ -25,7 +25,7 @@ class LibraryScreen extends ConsumerWidget {
           );
         }
         return RefreshIndicator(
-          onRefresh: () async => ref.read(libraryRepoProvider)?.sync(),
+          onRefresh: () async => ref.read(downloadManagerProvider)?.downloadAllMissing(),
           child: ListView.builder(
             itemCount: list.length,
             itemBuilder: (context, i) =>

@@ -57,12 +57,12 @@ class PlayerScreen extends ConsumerWidget {
   }
 
   void _showLyrics(BuildContext context, WidgetRef ref, String trackId) {
-    final api = ref.read(apiClientProvider);
+    final db = ref.read(dbProvider);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => FutureBuilder<String?>(
-        future: api?.lyrics(trackId),
+        future: db.trackById(trackId).then((t) => t?.lyrics),
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const SizedBox(
