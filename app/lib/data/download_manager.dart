@@ -17,7 +17,10 @@ class DownloadManager {
   final ApiClient _api;
   final AppDatabase _db;
 
-  bool _batchRunning = false;
+  // Drains run one-after-another. Chaining means a call made while a drain is
+  // in flight still resolves only after a drain that starts *after* it, so the
+  // terminal "is everything downloaded?" check is reliable.
+  Future<void> _drainChain = Future<void>.value();
 
   Future<Directory> _musicDir() async {
     final base = await getApplicationSupportDirectory();
@@ -149,25 +152,30 @@ class DownloadManager {
     await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
   }
 
-  /// Pull every track that isn't on this device yet, a few at a time. Safe to
-  /// call repeatedly — it no-ops while a batch is already running.
-  Future<void> downloadAllMissing({int concurrency = 3}) async {
-    if (_batchRunning) return;
-    _batchRunning = true;
-    try {
-      await _runBatch(await _db.tracksNeedingDownload(), concurrency: concurrency);
-    } finally {
-      _batchRunning = false;
+  // Keep downloading until nothing is pending, re-querying each round so tracks
+  // imported mid-drain (as more arrive from the backend) are picked up too.
+  Future<void> _drainOnce({int concurrency = 3}) async {
+    while (true) {
+      final pending = await _db.tracksNeedingDownload();
+      if (pending.isEmpty) return;
+      await _runBatch(pending, concurrency: concurrency);
     }
   }
 
-  /// Download all of one job's tracks. Returns true if every track ended up on
-  /// the device (so the caller can safely DELETE the job from the backend).
-  Future<bool> downloadForJob(String jobId, {int concurrency = 3}) async {
-    await _runBatch(await _db.tracksForJobNotDownloaded(jobId), concurrency: concurrency);
-    final remaining = await _db.tracksForJobNotDownloaded(jobId);
-    return remaining.isEmpty;
+  /// Download every track that isn't on this device yet. Calls are serialised
+  /// onto a chain so they never overlap and the returned future resolves only
+  /// after a full drain that began at/after this call.
+  Future<void> downloadAllMissing({int concurrency = 3}) {
+    final next = _drainChain.then((_) => _drainOnce(concurrency: concurrency));
+    // Swallow errors on the chain so one failure can't poison later drains.
+    _drainChain = next.catchError((_) {});
+    return next;
   }
+
+  /// True when all of a job's tracks are downloaded onto this device — i.e. the
+  /// backend's temp copy can be safely deleted.
+  Future<bool> isJobFullyDownloaded(String jobId) async =>
+      (await _db.tracksForJobNotDownloaded(jobId)).isEmpty;
 
   /// Total bytes used by downloaded FLACs on this device.
   Future<int> usedBytes() async {

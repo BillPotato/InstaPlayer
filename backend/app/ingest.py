@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +19,10 @@ log = logging.getLogger(__name__)
 
 MANIFEST_NAME = "manifest.json"
 ART_DIRNAME = "art"
+
+# Serialises manifest read-modify-write so the watcher and the final pass can't
+# corrupt the file or double-append when they overlap.
+_manifest_lock = threading.Lock()
 
 
 @dataclass
@@ -87,61 +92,94 @@ def _playlist_name(job_dir: Path, files: list[Path]) -> str:
     return "Imported playlist"
 
 
-def build_manifest(job_dir: Path, spotify_url: str | None = None) -> dict:
-    """Scan ``job_dir`` for FLACs, write art sidecars, and return + persist a
-    manifest dict. Files that can't be parsed are logged and skipped so one bad
-    file never aborts the job. Returns the manifest (also written to disk).
-    """
-    files = scan_flacs(job_dir)
-    art_dir = job_dir / ART_DIRNAME
-    tracks: list[dict] = []
+def _track_entry(job_dir: Path, path: Path, n: int) -> dict | None:
+    """Parse one FLAC into a manifest entry with index ``n``, writing its art
+    sidecar. Returns None (and logs) if the file can't be read — e.g. it's still
+    being written — so the caller can retry it on a later pass."""
+    try:
+        meta = parse_flac(path)
+    except Exception:
+        log.warning("Skipping unreadable %s (may still be downloading)", path)
+        return None
 
-    for path in files:
-        try:
-            meta = parse_flac(path)
-        except Exception:
-            log.exception("Failed to read %s — skipping", path)
-            continue
+    art_file: str | None = None
+    has_art = False
+    if meta.art_bytes:
+        art_dir = job_dir / ART_DIRNAME
+        art_dir.mkdir(parents=True, exist_ok=True)
+        ext = "png" if (meta.art_mime or "").endswith("png") else "jpg"
+        art_path = art_dir / f"{n}.{ext}"
+        art_path.write_bytes(meta.art_bytes)
+        art_file = str(art_path.relative_to(job_dir).as_posix())
+        has_art = True
 
-        n = len(tracks)  # stable index within this manifest
-        art_file: str | None = None
-        has_art = False
-        if meta.art_bytes:
-            art_dir.mkdir(parents=True, exist_ok=True)
-            ext = "png" if (meta.art_mime or "").endswith("png") else "jpg"
-            art_path = art_dir / f"{n}.{ext}"
-            art_path.write_bytes(meta.art_bytes)
-            art_file = str(art_path.relative_to(job_dir).as_posix())
-            has_art = True
-
-        tracks.append(
-            {
-                "n": n,
-                "file": str(path.relative_to(job_dir).as_posix()),
-                "title": meta.title,
-                "artist": meta.artist,
-                "album": meta.album,
-                "albumArtist": meta.album_artist or meta.artist,
-                "trackNumber": meta.track_number,
-                "durationMs": meta.duration_ms,
-                "isrc": meta.isrc,
-                "quality": meta.quality,
-                "mime": "audio/flac",
-                "fileSize": path.stat().st_size,
-                "hasArt": has_art,
-                "artFile": art_file,
-                "lyrics": meta.lyrics,
-            }
-        )
-
-    manifest = {
-        "name": _playlist_name(job_dir, files),
-        "spotifyUrl": spotify_url,
-        "trackCount": len(tracks),
-        "tracks": tracks,
+    return {
+        "n": n,
+        "file": str(path.relative_to(job_dir).as_posix()),
+        "title": meta.title,
+        "artist": meta.artist,
+        "album": meta.album,
+        "albumArtist": meta.album_artist or meta.artist,
+        "trackNumber": meta.track_number,
+        "durationMs": meta.duration_ms,
+        "isrc": meta.isrc,
+        "quality": meta.quality,
+        "mime": "audio/flac",
+        "fileSize": path.stat().st_size,
+        "hasArt": has_art,
+        "artFile": art_file,
+        "lyrics": meta.lyrics,
     }
-    (job_dir / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
-    return manifest
+
+
+def update_manifest(job_dir: Path, spotify_url: str | None = None) -> dict:
+    """Append any FLACs not yet in the manifest and persist it.
+
+    Append-only with stable ``n`` indices: a track's index never changes once
+    assigned, so the device can safely fetch ``/files/{n}`` while more tracks
+    are still arriving. Safe to call repeatedly during a download (idempotent
+    per file) and thread-safe. Unreadable/partial files are skipped and picked
+    up on a later pass. Returns the current manifest.
+    """
+    with _manifest_lock:
+        files = scan_flacs(job_dir)
+        manifest = load_manifest(job_dir) or {
+            "name": _playlist_name(job_dir, files),
+            "spotifyUrl": spotify_url,
+            "trackCount": 0,
+            "tracks": [],
+        }
+        known = {t["file"] for t in manifest["tracks"]}
+        changed = False
+        for path in files:
+            rel = str(path.relative_to(job_dir).as_posix())
+            if rel in known:
+                continue
+            entry = _track_entry(job_dir, path, len(manifest["tracks"]))
+            if entry is None:
+                continue
+            manifest["tracks"].append(entry)
+            known.add(rel)
+            changed = True
+
+        if manifest.get("spotifyUrl") is None and spotify_url is not None:
+            manifest["spotifyUrl"] = spotify_url
+            changed = True
+        if not manifest["name"] or manifest["name"] == "Imported playlist":
+            name = _playlist_name(job_dir, files)
+            if name != manifest["name"]:
+                manifest["name"] = name
+                changed = True
+
+        manifest["trackCount"] = len(manifest["tracks"])
+        if changed or not (job_dir / MANIFEST_NAME).exists():
+            (job_dir / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+        return manifest
+
+
+# Backwards-compatible name: a one-shot build is just an update from empty.
+def build_manifest(job_dir: Path, spotify_url: str | None = None) -> dict:
+    return update_manifest(job_dir, spotify_url)
 
 
 def load_manifest(job_dir: Path) -> dict | None:

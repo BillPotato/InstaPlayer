@@ -22,7 +22,7 @@ from typing import Any
 
 from .config import Settings, get_settings
 from .db import SessionLocal
-from .ingest import build_manifest, scan_flacs
+from .ingest import scan_flacs, update_manifest
 from .models import Job
 from .spotiflac_adapter import SpotiFlacError, run_spotiflac
 
@@ -92,16 +92,29 @@ class JobManager:
         self._publish(job_id, event)
         return event
 
-    async def _watch(self, job_id: str, job_dir: Path, progress: dict[str, Any]) -> None:
-        """Poll the job dir + shared progress and publish status updates."""
+    async def _watch(
+        self, job_id: str, job_dir: Path, spotify_url: str | None, progress: dict[str, Any]
+    ) -> None:
+        """Poll the job dir, append newly-finished tracks to the manifest, and
+        publish progress. ``completed`` is the manifest track count — i.e. tracks
+        that are fully downloaded AND fetchable — so the device can import each
+        one the moment it appears, instead of waiting for the whole job."""
+        loop = asyncio.get_running_loop()
         last: tuple | None = None
+        manifest_count = 0
         try:
             while True:
-                completed = len(scan_flacs(job_dir))
-                snapshot = (completed, progress.get("total"), progress.get("current"))
+                # Manifest grows as files land; update off-thread (mutagen +
+                # art/json writes would otherwise block the event loop).
+                if len(scan_flacs(job_dir)) > manifest_count:
+                    manifest = await loop.run_in_executor(
+                        None, update_manifest, job_dir, spotify_url
+                    )
+                    manifest_count = manifest["trackCount"]
+                snapshot = (manifest_count, progress.get("total"), progress.get("current"))
                 if snapshot != last:
                     last = snapshot
-                    fields: dict[str, Any] = {"completed": completed}
+                    fields: dict[str, Any] = {"completed": manifest_count}
                     if progress.get("total") is not None:
                         fields["total"] = progress["total"]
                     if progress.get("current") is not None:
@@ -125,7 +138,7 @@ class JobManager:
         def on_progress(update: dict[str, Any]) -> None:
             progress.update(update)
 
-        watcher = asyncio.create_task(self._watch(job_id, job_dir, progress))
+        watcher = asyncio.create_task(self._watch(job_id, job_dir, spotify_url, progress))
         try:
             await loop.run_in_executor(
                 None,
@@ -142,9 +155,9 @@ class JobManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
 
-            # Build the manifest (blocking-ish) the device will fetch from.
+            # Final pass to catch any stragglers the watcher didn't append yet.
             manifest = await loop.run_in_executor(
-                None, build_manifest, job_dir, spotify_url
+                None, update_manifest, job_dir, spotify_url
             )
             count = manifest["trackCount"]
             total = progress.get("total") or count

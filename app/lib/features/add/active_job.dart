@@ -42,30 +42,63 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
     _tracker = tracker;
     _sub = tracker.updates.listen((event) {
       state = event;
-      if (event.status == 'completed' && event.completed > 0) {
-        _importAndDownload(event.id);
+      // Import on every progress tick (not just completion) so each finished
+      // track shows up in the library as soon as the backend has it, and starts
+      // downloading to the device — no waiting for the whole playlist.
+      if (event.status == 'running' || event.status == 'completed') {
+        _onProgress(event.id, terminal: event.status == 'completed');
       }
     });
   }
 
-  /// Import the finished job's manifest into the local library, download its
-  /// tracks (audio + art) onto this device, then delete the job from the
-  /// backend once everything is local (the backend stores nothing permanently).
-  Future<void> _importAndDownload(String jobId) async {
-    final repo = ref.read(libraryRepoProvider);
-    final dm = ref.read(downloadManagerProvider);
-    final api = ref.read(apiClientProvider);
-    if (repo == null || dm == null || api == null) return;
+  // Serialise importing so overlapping progress events don't race; if events
+  // arrive while an import is running, do one more pass afterwards.
+  bool _importing = false;
+  bool _importAgain = false;
 
-    await repo.importManifest(jobId);
-    final allDownloaded = await dm.downloadForJob(jobId);
-    if (allDownloaded) {
-      // Everything is on the device — release the backend's temp copy.
-      try {
-        await api.deleteJob(jobId);
-      } catch (_) {
-        // If cleanup fails the reaper will collect it later; not fatal.
+  Future<void> _onProgress(String jobId, {required bool terminal}) async {
+    await _importAvailable(jobId);
+    // Keep the device download draining (chained — safe to call repeatedly).
+    ref.read(downloadManagerProvider)?.downloadAllMissing();
+
+    if (terminal) {
+      final dm = ref.read(downloadManagerProvider);
+      final api = ref.read(apiClientProvider);
+      if (dm == null || api == null) return;
+      // Wait for a full drain that runs after the final import, then release
+      // the backend's temp copy if everything made it onto the device.
+      await dm.downloadAllMissing();
+      if (await dm.isJobFullyDownloaded(jobId)) {
+        try {
+          await api.deleteJob(jobId);
+        } catch (_) {
+          // If cleanup fails the reaper collects it later; not fatal.
+        }
       }
+    }
+  }
+
+  /// Import whatever tracks are currently in the job's manifest into drift.
+  /// Idempotent (upserts); a not-ready/404 manifest is ignored.
+  Future<void> _importAvailable(String jobId) async {
+    if (_importing) {
+      _importAgain = true;
+      return;
+    }
+    _importing = true;
+    try {
+      do {
+        _importAgain = false;
+        final repo = ref.read(libraryRepoProvider);
+        if (repo == null) return;
+        try {
+          await repo.importManifest(jobId);
+        } catch (_) {
+          // Manifest not ready yet (no tracks finished) or transient error.
+        }
+      } while (_importAgain);
+    } finally {
+      _importing = false;
     }
   }
 
