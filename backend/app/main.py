@@ -84,6 +84,15 @@ def delete_job(job_id: str, manager: JobManager = Depends(get_job_manager)) -> d
     return {"status": "deleted"}
 
 
+@app.post("/jobs/{job_id}/cancel", dependencies=[Depends(require_auth)])
+def cancel_job(job_id: str, manager: JobManager = Depends(get_job_manager)) -> dict[str, str]:
+    """Signal the backend to stop a running job. The cancellation is async:
+    the job will transition to ``cancelled`` and the WebSocket will deliver the
+    terminal event shortly after this call returns."""
+    manager.cancel_job(_safe_job(job_id))
+    return {"status": "cancelling"}
+
+
 @app.websocket("/jobs/{job_id}/events")
 async def job_events(
     websocket: WebSocket,
@@ -96,15 +105,21 @@ async def job_events(
         await websocket.close(code=4401)
         return
     await websocket.accept()
+    # subscribe() also cancels any pending disconnect-triggered cancel timer.
     queue = manager.subscribe(job_id)
     try:
         while True:
             event = await queue.get()
             await websocket.send_json(event)
-            if event.get("type") == "status" and event.get("status") in {"completed", "failed"}:
+            if event.get("type") == "status" and event.get("status") in {
+                "completed", "failed", "cancelled"
+            }:
                 break
     except WebSocketDisconnect:
-        pass
+        # Client dropped the connection. Start a grace-period timer: if no
+        # client reconnects within 20 s, the job is auto-cancelled so we don't
+        # burn bandwidth (or backend storage) for an unattended download.
+        manager.on_client_disconnected(job_id)
     finally:
         manager.unsubscribe(job_id, queue)
         try:

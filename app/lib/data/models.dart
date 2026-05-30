@@ -111,7 +111,7 @@ class JobDto {
   final String? current; // label of the track being fetched, if known
   final String? error;
 
-  bool get isTerminal => status == 'completed' || status == 'failed';
+  bool get isTerminal => status == 'completed' || status == 'failed' || status == 'cancelled';
 
   factory JobDto.fromJson(Map<String, dynamic> j) => JobDto(
         id: _str(j['id'] ?? j['jobId']),

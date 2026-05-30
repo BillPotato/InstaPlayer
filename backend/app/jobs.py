@@ -34,6 +34,10 @@ class JobManager:
         self.settings = settings
         self._subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
         self._last_event: dict[str, dict[str, Any]] = {}
+        # Running download tasks, keyed by job_id — used for cancellation.
+        self._tasks: dict[str, asyncio.Task] = {}
+        # Per-job timers that fire cancel after a client disconnect grace period.
+        self._cancel_timers: dict[str, asyncio.Task] = {}
 
     # ---- pub/sub ---------------------------------------------------------
     def subscribe(self, job_id: str) -> asyncio.Queue:
@@ -41,6 +45,10 @@ class JobManager:
         self._subscribers[job_id].add(queue)
         if job_id in self._last_event:
             queue.put_nowait(self._last_event[job_id])
+        # If a disconnect timer is pending (e.g. client reconnected), cancel it.
+        timer = self._cancel_timers.pop(job_id, None)
+        if timer and not timer.done():
+            timer.cancel()
         return queue
 
     def unsubscribe(self, job_id: str, queue: asyncio.Queue) -> None:
@@ -51,6 +59,30 @@ class JobManager:
         for queue in list(self._subscribers.get(job_id, ())):
             queue.put_nowait(event)
 
+    # ---- cancellation ----------------------------------------------------
+    def cancel_job(self, job_id: str) -> bool:
+        """Request cancellation of a running job. Returns True if found."""
+        task = self._tasks.get(job_id)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
+
+    def on_client_disconnected(self, job_id: str) -> None:
+        """Start a 20-second grace period; auto-cancel if no client reconnects."""
+        if job_id in self._cancel_timers:
+            return  # timer already running
+        task = self._tasks.get(job_id)
+        if not task or task.done():
+            return  # job is not running; nothing to cancel
+
+        async def _delayed() -> None:
+            await asyncio.sleep(20)
+            log.info("No client for 20 s — auto-cancelling job %s", job_id)
+            self.cancel_job(job_id)
+
+        self._cancel_timers[job_id] = asyncio.create_task(_delayed())
+
     # ---- job lifecycle ---------------------------------------------------
     async def submit(self, spotify_url: str, preferred_source: str | None) -> str:
         with SessionLocal() as session:
@@ -58,7 +90,8 @@ class JobManager:
             session.add(job)
             session.commit()
             job_id = job.id
-        asyncio.create_task(self._run(job_id))
+        task = asyncio.create_task(self._run(job_id))
+        self._tasks[job_id] = task
         return job_id
 
     def _services(self, preferred_source: str | None) -> list[str]:
@@ -194,6 +227,21 @@ class JobManager:
                     job_id, status="completed", total=total, completed=count,
                     current=None, error=None,
                 )
+        except asyncio.CancelledError:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+            shutil.rmtree(job_dir, ignore_errors=True)
+            # Publish cancelled status before removing the DB row so any still-
+            # connected client receives the terminal event cleanly.
+            self._set_status(job_id, status="cancelled", current=None, error=None)
+            with SessionLocal() as session:
+                job = session.get(Job, job_id)
+                if job is not None:
+                    session.delete(job)
+                    session.commit()
+            self._last_event.pop(job_id, None)
+            # Do NOT re-raise: the task exits cleanly after cleanup.
         except SpotiFlacError as exc:
             watcher.cancel()
             shutil.rmtree(job_dir, ignore_errors=True)
@@ -204,9 +252,18 @@ class JobManager:
             self._set_status(
                 job_id, status="failed", current=None, error=f"Unexpected error: {exc}"
             )
+        finally:
+            self._tasks.pop(job_id, None)
 
     def delete_job(self, job_id: str) -> None:
-        """Device finished pulling: delete the files and the job row."""
+        """Device finished pulling — or user cancelled: delete files and job row."""
+        # Stop any running download (harmless if already done).
+        task = self._tasks.pop(job_id, None)
+        if task and not task.done():
+            task.cancel()
+        timer = self._cancel_timers.pop(job_id, None)
+        if timer and not timer.done():
+            timer.cancel()
         shutil.rmtree(self.settings.jobs_dir / job_id, ignore_errors=True)
         self._last_event.pop(job_id, None)
         with SessionLocal() as session:

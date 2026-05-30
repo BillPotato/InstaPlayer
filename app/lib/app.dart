@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'features/add/active_job.dart';
 import 'features/add/add_screen.dart';
 import 'features/library/library_screen.dart';
 import 'features/library/playlists_screen.dart';
@@ -46,7 +47,8 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with WidgetsBindingObserver {
   int _index = 0;
 
   static const _tabs = [PlaylistsScreen(), LibraryScreen(), AddScreen()];
@@ -54,11 +56,29 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Resume any downloads that didn't finish last session (best-effort; the
     // backend job may still be alive within its retention window).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(downloadManagerProvider)?.downloadAllMissing().ignore();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      // App is being closed — ask the backend to stop the running job so we
+      // don't burn bandwidth or backend storage for an unattended download.
+      // The server-side 20-second disconnect timer is the fallback if this
+      // call doesn't reach the backend (e.g. process was force-killed).
+      ref.read(activeJobProvider.notifier).cancel();
+    }
   }
 
   @override

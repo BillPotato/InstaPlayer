@@ -52,6 +52,8 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
     // dropped and we're polling REST (which has no file_ready events).
     _sub = tracker.updates.listen((event) {
       state = event;
+      // Only drive downloads for actively-running or successfully-completed jobs.
+      // Cancelled/failed jobs stop here — keep whatever made it to the device.
       if (event.status == 'running' || event.status == 'completed') {
         _onProgress(event.id, terminal: event.status == 'completed');
       }
@@ -111,6 +113,20 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
       } while (_importAgain);
     } finally {
       _importing = false;
+    }
+  }
+
+  /// Ask the backend to stop the running job. The WebSocket will deliver the
+  /// terminal ``cancelled`` status event, which updates the UI naturally.
+  Future<void> cancel() async {
+    final job = state;
+    if (job == null || job.isTerminal) return;
+    final api = ref.read(apiClientProvider);
+    if (api == null) return;
+    try {
+      await api.cancelJob(job.id);
+    } catch (_) {
+      // Best-effort — the server-side disconnect timer is the fallback.
     }
   }
 

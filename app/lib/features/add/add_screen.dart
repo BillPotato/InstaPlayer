@@ -68,17 +68,21 @@ class _AddScreenState extends ConsumerState<AddScreen> {
         if (job != null) ...[
           const SizedBox(height: 24),
           _JobProgress(job: job),
-          if (job.isTerminal) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () =>
-                    ref.read(activeJobProvider.notifier).clear(),
-                child: const Text('Dismiss'),
-              ),
-            ),
-          ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: job.isTerminal
+                ? TextButton(
+                    onPressed: () =>
+                        ref.read(activeJobProvider.notifier).clear(),
+                    child: const Text('Dismiss'),
+                  )
+                : TextButton(
+                    onPressed: () =>
+                        ref.read(activeJobProvider.notifier).cancel(),
+                    child: const Text('Cancel'),
+                  ),
+          ),
         ],
       ],
     );
@@ -91,6 +95,13 @@ class _JobProgress extends StatelessWidget {
   final JobDto job;
 
   ({String label, IconData icon, Color color}) _status() {
+    if (job.status == 'cancelled') {
+      return (
+        label: 'Cancelled — ${job.completed} track${job.completed == 1 ? '' : 's'} kept.',
+        icon: Icons.cancel_outlined,
+        color: Colors.grey,
+      );
+    }
     if (job.status == 'failed') {
       return (
         label: 'Failed: ${job.error ?? 'unknown error'}',

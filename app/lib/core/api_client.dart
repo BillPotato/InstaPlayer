@@ -51,6 +51,12 @@ class ApiClient {
     await _dio.delete('/jobs/$jobId');
   }
 
+  /// Ask the backend to stop a running job. The backend cancels SpotiFLAC and
+  /// publishes a ``cancelled`` status event over the WebSocket.
+  Future<void> cancelJob(String jobId) async {
+    await _dio.post('/jobs/$jobId/cancel');
+  }
+
   // ---- URL builders (used by the downloader) ----
   String jobFileUrl(String jobId, int n) => '$_baseUrl/jobs/$jobId/files/$n';
   String jobArtUrl(String jobId, int n) => '$_baseUrl/jobs/$jobId/art/$n';
