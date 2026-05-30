@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from .auth import require_auth
 from .config import Settings, get_settings
-from .db import get_session, init_db
+from .db import SessionLocal, get_session, init_db
 from .ingest import load_manifest
 from .jobs import JobManager, get_job_manager
 from .models import Job
@@ -28,9 +28,32 @@ from .schemas import JobCreate, JobOut, Manifest
 log = logging.getLogger(__name__)
 
 
+def _fail_orphaned_jobs() -> None:
+    """Mark any jobs still in a non-terminal state as failed.
+
+    A job left in ``running`` or ``queued`` when the server stopped can never
+    resume — its asyncio task is gone. Without this, clients that are still
+    alive keep polling ``GET /jobs/{id}``, see status=``running``, and flood
+    ``GET /jobs/{id}/manifest`` every second forever.
+    """
+    with SessionLocal() as session:
+        orphans = session.scalars(
+            select(Job).where(Job.status.in_(["running", "queued"]))
+        ).all()
+        if orphans:
+            log.warning(
+                "Marking %d orphaned job(s) as failed on startup", len(orphans)
+            )
+        for job in orphans:
+            job.status = "failed"
+            job.error = "Server restarted while this job was running."
+        session.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN001
     init_db()
+    _fail_orphaned_jobs()
     reaper = asyncio.create_task(get_job_manager().reaper())
     try:
         yield
