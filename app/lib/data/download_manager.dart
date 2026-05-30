@@ -192,10 +192,16 @@ class DownloadManager {
 
   // Keep downloading until nothing is pending, re-querying each round so tracks
   // imported mid-drain (as more arrive from the backend) are picked up too.
+  // Tracks that fail in this pass are excluded from subsequent iterations so a
+  // 404 (deleted job, expired file) doesn't spin forever — they stay in
+  // 'failed' and are retried only on the next downloadAllMissing() call.
   Future<void> _drainOnce({int concurrency = 3}) async {
+    final attempted = <String>{};
     while (true) {
-      final pending = await _db.tracksNeedingDownload();
+      final all = await _db.tracksNeedingDownload();
+      final pending = all.where((t) => !attempted.contains(t.id)).toList();
       if (pending.isEmpty) return;
+      for (final t in pending) { attempted.add(t.id); }
       await _runBatch(pending, concurrency: concurrency);
     }
   }
