@@ -59,7 +59,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
     WidgetsBinding.instance.addObserver(this);
     // Resume any downloads that didn't finish last session (best-effort; the
     // backend job may still be alive within its retention window).
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Tracks left in queued/downloading by a previous session are invisible
+      // to downloadAllMissing — reset them first so they retry.
+      await ref.read(dbProvider).resetStuckDownloads();
       ref.read(downloadManagerProvider)?.downloadAllMissing().ignore();
     });
   }

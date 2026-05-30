@@ -147,6 +147,15 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
+  /// Reset any tracks stuck in queued/downloading back to notDownloaded so
+  /// downloadAllMissing() picks them up on the next app start.
+  Future<void> resetStuckDownloads() => (update(localTracks)
+        ..where((t) =>
+            t.downloadState.equals(DownloadState.queued.index) |
+            t.downloadState.equals(DownloadState.downloading.index)))
+      .write(const LocalTracksCompanion(
+          downloadState: Value(DownloadState.notDownloaded)));
+
   Future<void> touchLastPlayed(String id) =>
       (update(localTracks)..where((t) => t.id.equals(id))).write(
         LocalTracksCompanion(

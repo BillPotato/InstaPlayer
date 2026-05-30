@@ -58,6 +58,18 @@ class DownloadManager {
     }
 
     final finalFile = await fileFor(trackId);
+
+    // Fast path: FLAC already on device (e.g. from a previous session whose DB
+    // row was reset to notDownloaded). Skip the transfer; just ensure art exists.
+    if (finalFile.existsSync()) {
+      final artPath = await _ensureArt(track, jobId, n);
+      await _db.setDownloadState(trackId, DownloadState.downloaded,
+          downloadedBytes: finalFile.lengthSync(),
+          localPath: finalFile.path,
+          localArtPath: artPath);
+      return;
+    }
+
     final partFile = File('${finalFile.path}.part');
     final existing = partFile.existsSync() ? partFile.lengthSync() : 0;
 
@@ -88,8 +100,7 @@ class DownloadManager {
       await sink.close();
       await partFile.rename(finalFile.path);
 
-      // Album art is best-effort: a missing/failed art fetch doesn't fail the track.
-      final artPath = track.hasArt ? await _downloadArt(trackId, jobId, n) : null;
+      final artPath = await _ensureArt(track, jobId, n);
 
       await _db.setDownloadState(trackId, DownloadState.downloaded,
           downloadedBytes: received, localPath: finalFile.path, localArtPath: artPath);
@@ -98,6 +109,16 @@ class DownloadManager {
       await _db.setDownloadState(trackId, DownloadState.failed);
       rethrow;
     }
+  }
+
+  /// Returns a local art path for [track]: reuses the file if it already exists
+  /// on this device (e.g. from a previous session), otherwise fetches from the
+  /// backend. Returns null if the track has no art or the fetch fails.
+  Future<String?> _ensureArt(LocalTrack track, String jobId, int n) async {
+    if (!track.hasArt) return null;
+    final artFile = await _artFileFor(track.id);
+    if (artFile.existsSync()) return artFile.path;
+    return _downloadArt(track.id, jobId, n);
   }
 
   Future<String?> _downloadArt(String trackId, String jobId, int n) async {
