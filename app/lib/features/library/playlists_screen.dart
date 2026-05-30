@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers.dart';
+import 'delete_helpers.dart';
 import 'playlist_detail_screen.dart';
 
 class PlaylistsScreen extends ConsumerWidget {
@@ -29,12 +30,22 @@ class PlaylistsScreen extends ConsumerWidget {
             itemCount: list.length,
             itemBuilder: (context, i) {
               final pl = list[i];
-              return ListTile(
-                leading: const Icon(Icons.queue_music),
-                title: Text(pl.name),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => PlaylistDetailScreen(playlistId: pl.id, name: pl.name),
+              return Dismissible(
+                key: ValueKey(pl.id),
+                direction: DismissDirection.endToStart,
+                background: const DeleteBackground(),
+                confirmDismiss: (_) =>
+                    confirmDeletePlaylist(context, pl.name),
+                onDismissed: (_) =>
+                    ref.read(downloadManagerProvider)?.deletePlaylist(pl.id),
+                child: ListTile(
+                  leading: const Icon(Icons.queue_music),
+                  title: Text(pl.name),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PlaylistDetailScreen(playlistId: pl.id, name: pl.name),
+                    ),
                   ),
                 ),
               );

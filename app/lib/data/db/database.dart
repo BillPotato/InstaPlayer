@@ -152,6 +152,41 @@ class AppDatabase extends _$AppDatabase {
         LocalTracksCompanion(
             lastPlayedAt: Value(DateTime.now().millisecondsSinceEpoch)),
       );
+
+  /// Delete one track's DB row and all of its playlist join rows.
+  Future<void> deleteTrackRow(String id) async {
+    await (delete(localPlaylistTracks)..where((t) => t.trackId.equals(id))).go();
+    await (delete(localTracks)..where((t) => t.id.equals(id))).go();
+  }
+
+  /// Tracks belonging to [playlistId] that are not in any other playlist.
+  /// Safe to delete from the device when their parent playlist is removed.
+  Future<List<LocalTrack>> tracksOnlyInPlaylist(String playlistId) async {
+    final joins = await (select(localPlaylistTracks)
+          ..where((t) => t.playlistId.equals(playlistId)))
+        .get();
+    final result = <LocalTrack>[];
+    for (final join in joins) {
+      final elsewhere = await (select(localPlaylistTracks)
+            ..where((t) =>
+                t.trackId.equals(join.trackId) &
+                t.playlistId.equals(playlistId).not()))
+          .get();
+      if (elsewhere.isEmpty) {
+        final track = await trackById(join.trackId);
+        if (track != null) result.add(track);
+      }
+    }
+    return result;
+  }
+
+  /// Delete a playlist row and all of its join rows.
+  /// Does NOT touch track rows — call [tracksOnlyInPlaylist] first to get
+  /// orphaned tracks and delete them via [deleteTrackRow].
+  Future<void> deletePlaylistRow(String id) async {
+    await (delete(localPlaylistTracks)..where((t) => t.playlistId.equals(id))).go();
+    await (delete(localPlaylists)..where((t) => t.id.equals(id))).go();
+  }
 }
 
 LazyDatabase _open() {

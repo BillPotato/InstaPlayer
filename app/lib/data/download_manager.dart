@@ -133,6 +133,23 @@ class DownloadManager {
             localPath: Value(null), localArtPath: Value(null)));
   }
 
+  /// Permanently remove a track: deletes its files then its DB row + join rows.
+  Future<void> deleteTrack(String trackId) async {
+    await deleteDownload(trackId);
+    await _db.deleteTrackRow(trackId);
+  }
+
+  /// Permanently remove a playlist and all tracks that belong only to it.
+  /// Tracks shared with other playlists are left untouched.
+  Future<void> deletePlaylist(String playlistId) async {
+    final orphans = await _db.tracksOnlyInPlaylist(playlistId);
+    for (final track in orphans) {
+      await deleteDownload(track.id);
+      await _db.deleteTrackRow(track.id);
+    }
+    await _db.deletePlaylistRow(playlistId);
+  }
+
   Future<void> _runBatch(List<LocalTrack> pending, {int concurrency = 3}) async {
     if (pending.isEmpty) return;
     for (final t in pending) {

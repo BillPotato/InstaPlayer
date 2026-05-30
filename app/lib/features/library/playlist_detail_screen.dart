@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers.dart';
 import '../common/track_tile.dart';
+import 'delete_helpers.dart';
 
 class PlaylistDetailScreen extends ConsumerWidget {
   const PlaylistDetailScreen({super.key, required this.playlistId, required this.name});
@@ -60,8 +61,19 @@ class PlaylistDetailScreen extends ConsumerWidget {
               Expanded(
                 child: ListView.builder(
                   itemCount: list.length,
-                  itemBuilder: (context, i) =>
-                      TrackTile(track: list[i], queue: list, index: i),
+                  itemBuilder: (context, i) {
+                    final track = list[i];
+                    return Dismissible(
+                      key: ValueKey(track.id),
+                      direction: DismissDirection.endToStart,
+                      background: const DeleteBackground(),
+                      confirmDismiss: (_) =>
+                          confirmDeleteTrack(context, track.title),
+                      onDismissed: (_) =>
+                          ref.read(downloadManagerProvider)?.deleteTrack(track.id),
+                      child: TrackTile(track: track, queue: list, index: i),
+                    );
+                  },
                 ),
               ),
             ],
