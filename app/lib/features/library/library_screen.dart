@@ -6,16 +6,26 @@ import '../common/track_tile.dart';
 import 'delete_helpers.dart';
 
 /// Flat list of every track in the library (the "Songs" tab).
-class LibraryScreen extends ConsumerWidget {
+class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends ConsumerState<LibraryScreen> {
+  // IDs removed in this session. Filtered out immediately on dismiss so the
+  // Dismissible is gone from the tree before the drift stream catches up.
+  final _dismissed = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
     final tracks = ref.watch(tracksProvider);
     return tracks.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
-      data: (list) {
+      data: (all) {
+        final list = all.where((t) => !_dismissed.contains(t.id)).toList();
         if (list.isEmpty) {
           return const Center(
             child: Padding(
@@ -36,8 +46,10 @@ class LibraryScreen extends ConsumerWidget {
                 direction: DismissDirection.endToStart,
                 background: const DeleteBackground(),
                 confirmDismiss: (_) => confirmDeleteTrack(context, track.title),
-                onDismissed: (_) =>
-                    ref.read(downloadManagerProvider)?.deleteTrack(track.id),
+                onDismissed: (_) {
+                  setState(() => _dismissed.add(track.id));
+                  ref.read(downloadManagerProvider)?.deleteTrack(track.id);
+                },
                 child: TrackTile(track: track, queue: list, index: i),
               );
             },

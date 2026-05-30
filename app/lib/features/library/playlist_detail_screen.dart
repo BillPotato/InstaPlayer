@@ -5,21 +5,29 @@ import '../../providers.dart';
 import '../common/track_tile.dart';
 import 'delete_helpers.dart';
 
-class PlaylistDetailScreen extends ConsumerWidget {
+class PlaylistDetailScreen extends ConsumerStatefulWidget {
   const PlaylistDetailScreen({super.key, required this.playlistId, required this.name});
 
   final String playlistId;
   final String name;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tracks = ref.watch(playlistTracksProvider(playlistId));
+  ConsumerState<PlaylistDetailScreen> createState() => _PlaylistDetailScreenState();
+}
+
+class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
+  final _dismissed = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final tracks = ref.watch(playlistTracksProvider(widget.playlistId));
     return Scaffold(
-      appBar: AppBar(title: Text(name)),
+      appBar: AppBar(title: Text(widget.name)),
       body: tracks.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (list) {
+        data: (all) {
+          final list = all.where((t) => !_dismissed.contains(t.id)).toList();
           if (list.isEmpty) {
             return const Center(child: Text('This playlist has no downloaded tracks yet.'));
           }
@@ -69,8 +77,10 @@ class PlaylistDetailScreen extends ConsumerWidget {
                       background: const DeleteBackground(),
                       confirmDismiss: (_) =>
                           confirmDeleteTrack(context, track.title),
-                      onDismissed: (_) =>
-                          ref.read(downloadManagerProvider)?.deleteTrack(track.id),
+                      onDismissed: (_) {
+                        setState(() => _dismissed.add(track.id));
+                        ref.read(downloadManagerProvider)?.deleteTrack(track.id);
+                      },
                       child: TrackTile(track: track, queue: list, index: i),
                     );
                   },
