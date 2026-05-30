@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -84,6 +86,53 @@ def parse_flac(path: Path) -> FlacMeta:
     return meta
 
 
+def _fetch_art_online(meta: "FlacMeta") -> tuple[bytes, str] | None:
+    """Best-effort cover-art fetch when the FLAC has no embedded picture.
+
+    Tries Deezer (by ISRC — exact match, fast) then iTunes Search (by
+    title + artist — fuzzy, broader coverage). Returns (image_bytes, mime)
+    or None. Never raises.
+    """
+    # ---- Deezer by ISRC -------------------------------------------------
+    if meta.isrc:
+        try:
+            url = f"https://api.deezer.com/track/isrc:{urllib.parse.quote(meta.isrc)}"
+            with urllib.request.urlopen(url, timeout=8) as r:
+                data = json.loads(r.read())
+            cover = (
+                data.get("album", {}).get("cover_xl")
+                or data.get("album", {}).get("cover_big")
+                or data.get("album", {}).get("cover_medium")
+            )
+            if cover:
+                with urllib.request.urlopen(cover, timeout=8) as r:
+                    mime = r.headers.get_content_type() or "image/jpeg"
+                    return r.read(), mime
+        except Exception:
+            pass
+
+    # ---- iTunes Search by title + artist --------------------------------
+    if meta.title:
+        try:
+            term = urllib.parse.quote(f"{meta.title} {meta.artist}")
+            url = f"https://itunes.apple.com/search?term={term}&entity=song&limit=5"
+            with urllib.request.urlopen(url, timeout=8) as r:
+                data = json.loads(r.read())
+            for result in data.get("results", []):
+                artwork = result.get("artworkUrl100", "")
+                if not artwork:
+                    continue
+                # Upgrade thumbnail to full-res (100×100 → 1200×1200)
+                artwork = artwork.replace("100x100bb", "1200x1200bb")
+                with urllib.request.urlopen(artwork, timeout=8) as r:
+                    mime = r.headers.get_content_type() or "image/jpeg"
+                    return r.read(), mime
+        except Exception:
+            pass
+
+    return None
+
+
 def _playlist_name(job_dir: Path, files: list[Path]) -> str:
     if files:
         rel = files[0].relative_to(job_dir)
@@ -101,6 +150,15 @@ def _track_entry(job_dir: Path, path: Path, n: int) -> dict | None:
     except Exception:
         log.warning("Skipping unreadable %s (may still be downloading)", path)
         return None
+
+    # Use embedded picture if present; otherwise try to fetch from online sources.
+    if not meta.art_bytes:
+        result = _fetch_art_online(meta)
+        if result:
+            meta.art_bytes, meta.art_mime = result
+            log.debug("Fetched cover art online for '%s'", meta.title)
+        else:
+            log.debug("No cover art found for '%s'", meta.title)
 
     art_file: str | None = None
     has_art = False
