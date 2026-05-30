@@ -93,24 +93,34 @@ class JobManager:
         return event
 
     async def _watch(
-        self, job_id: str, job_dir: Path, spotify_url: str | None, progress: dict[str, Any]
+        self,
+        job_id: str,
+        job_dir: Path,
+        spotify_url: str | None,
+        progress: dict[str, Any],
+        state: dict[str, Any],
     ) -> None:
         """Poll the job dir, append newly-finished tracks to the manifest, and
-        publish progress. ``completed`` is the manifest track count — i.e. tracks
-        that are fully downloaded AND fetchable — so the device can import each
-        one the moment it appears, instead of waiting for the whole job."""
+        publish progress. Emits ``file_ready`` for each track the moment it
+        becomes fetchable — so the device starts downloading without waiting for
+        the whole playlist. Also emits the coarser ``status`` update for the
+        progress bar."""
         loop = asyncio.get_running_loop()
         last: tuple | None = None
-        manifest_count = 0
         try:
             while True:
                 # Manifest grows as files land; update off-thread (mutagen +
                 # art/json writes would otherwise block the event loop).
-                if len(scan_flacs(job_dir)) > manifest_count:
+                if len(scan_flacs(job_dir)) > state["emitted"]:
                     manifest = await loop.run_in_executor(
                         None, update_manifest, job_dir, spotify_url
                     )
-                    manifest_count = manifest["trackCount"]
+                    new_count = manifest["trackCount"]
+                    # Emit file_ready for every track that just became fetchable.
+                    for n in range(state["emitted"], new_count):
+                        self._publish(job_id, {"type": "file_ready", "jobId": job_id, "n": n})
+                    state["emitted"] = new_count
+                manifest_count = state["emitted"]
                 snapshot = (manifest_count, progress.get("total"), progress.get("current"))
                 if snapshot != last:
                     last = snapshot
@@ -134,11 +144,16 @@ class JobManager:
 
         self._set_status(job_id, status="running")
         progress: dict[str, Any] = {"total": None, "current": None}
+        # Shared between _run and _watch so _run knows which file_ready events
+        # have already been emitted and can cover the stragglers itself.
+        state: dict[str, Any] = {"emitted": 0}
 
         def on_progress(update: dict[str, Any]) -> None:
             progress.update(update)
 
-        watcher = asyncio.create_task(self._watch(job_id, job_dir, spotify_url, progress))
+        watcher = asyncio.create_task(
+            self._watch(job_id, job_dir, spotify_url, progress, state)
+        )
         try:
             await loop.run_in_executor(
                 None,
@@ -160,6 +175,9 @@ class JobManager:
                 None, update_manifest, job_dir, spotify_url
             )
             count = manifest["trackCount"]
+            # Emit file_ready for any tracks the watcher was cancelled before seeing.
+            for n in range(state["emitted"], count):
+                self._publish(job_id, {"type": "file_ready", "jobId": job_id, "n": n})
             total = progress.get("total") or count
             if count == 0:
                 # Nothing downloaded — drop the empty dir, report clearly.

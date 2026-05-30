@@ -17,6 +17,7 @@ class JobTracker {
   final String jobId;
 
   final _controller = StreamController<JobDto>.broadcast();
+  final _fileReadyController = StreamController<int>.broadcast();
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
   Timer? _reconnectTimer;
@@ -25,7 +26,13 @@ class JobTracker {
   bool _terminal = false;
   bool _disposed = false;
 
+  /// Job status updates (queued / running / completed / failed).
   Stream<JobDto> get updates => _controller.stream;
+
+  /// Fires with the track index ``n`` the moment the backend marks it fetchable.
+  /// Use this to start downloading a track immediately instead of waiting for
+  /// the next status poll.
+  Stream<int> get fileReady => _fileReadyController.stream;
 
   void start() => _connectWs();
 
@@ -39,7 +46,15 @@ class JobTracker {
           _reconnectAttempts = 0;
           _stopPolling(); // socket is healthy again
           final text = data is String ? data : utf8.decode(data as List<int>);
-          _handle(JobDto.fromJson(jsonDecode(text) as Map<String, dynamic>));
+          final json = jsonDecode(text) as Map<String, dynamic>;
+          if (json['type'] == 'file_ready') {
+            final n = json['n'];
+            if (n is int && !_fileReadyController.isClosed) {
+              _fileReadyController.add(n);
+            }
+          } else {
+            _handle(JobDto.fromJson(json));
+          }
         },
         onError: (_) => _scheduleReconnect(),
         onDone: () {
@@ -102,5 +117,6 @@ class JobTracker {
     _disposed = true;
     _cleanup();
     _controller.close();
+    _fileReadyController.close();
   }
 }

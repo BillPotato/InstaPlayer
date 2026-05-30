@@ -12,11 +12,13 @@ import 'job_tracker.dart';
 class ActiveJobNotifier extends Notifier<JobDto?> {
   JobTracker? _tracker;
   StreamSubscription<JobDto>? _sub;
+  StreamSubscription<int>? _fileReadySub;
 
   @override
   JobDto? build() {
     ref.onDispose(() {
       _sub?.cancel();
+      _fileReadySub?.cancel();
       _tracker?.dispose();
     });
     return null;
@@ -40,15 +42,25 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
 
     final tracker = JobTracker(api, job.id)..start();
     _tracker = tracker;
+
+    // Fast path: a file_ready event fires the moment a specific track becomes
+    // fetchable on the backend. Import the manifest (so the track is in drift)
+    // then kick off the device download immediately — no polling delay.
+    _fileReadySub = tracker.fileReady.listen((_) => _onFileReady(job.id));
+
+    // Slow path / fallback: status ticks cover the case where the WebSocket
+    // dropped and we're polling REST (which has no file_ready events).
     _sub = tracker.updates.listen((event) {
       state = event;
-      // Import on every progress tick (not just completion) so each finished
-      // track shows up in the library as soon as the backend has it, and starts
-      // downloading to the device — no waiting for the whole playlist.
       if (event.status == 'running' || event.status == 'completed') {
         _onProgress(event.id, terminal: event.status == 'completed');
       }
     });
+  }
+
+  Future<void> _onFileReady(String jobId) async {
+    await _importAvailable(jobId);
+    ref.read(downloadManagerProvider)?.downloadAllMissing();
   }
 
   // Serialise importing so overlapping progress events don't race; if events
@@ -105,9 +117,11 @@ class ActiveJobNotifier extends Notifier<JobDto?> {
   /// Dismiss the current job card.
   void clear() {
     _sub?.cancel();
+    _fileReadySub?.cancel();
     _tracker?.dispose();
     _tracker = null;
     _sub = null;
+    _fileReadySub = null;
     state = null;
   }
 }
