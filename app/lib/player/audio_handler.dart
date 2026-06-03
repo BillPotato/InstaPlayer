@@ -63,6 +63,15 @@ class MusicAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await super.stop();
   }
 
+  /// Stop playback and clear the queue + current item so the mini-player
+  /// disappears. Call this when the playing track is deleted.
+  Future<void> stopAndClear() async {
+    await _player.stop();
+    queue.add(const []);
+    mediaItem.add(null);
+    await super.stop();
+  }
+
   PlaybackState _toPlaybackState(PlaybackEvent event) {
     final playing = _player.playing;
     return PlaybackState(

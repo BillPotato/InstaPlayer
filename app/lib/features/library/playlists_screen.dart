@@ -43,8 +43,17 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
                 direction: DismissDirection.endToStart,
                 background: const DeleteBackground(),
                 confirmDismiss: (_) => confirmDeletePlaylist(context, pl.name),
-                onDismissed: (_) {
+                onDismissed: (_) async {
                   setState(() => _dismissed.add(pl.id));
+                  final currentId =
+                      ref.read(currentMediaItemProvider).asData?.value?.id;
+                  if (currentId != null) {
+                    final tracks =
+                        await ref.read(dbProvider).playlistTracks(pl.id);
+                    if (tracks.any((t) => t.id == currentId)) {
+                      await ref.read(audioHandlerProvider).stopAndClear();
+                    }
+                  }
                   ref.read(downloadManagerProvider)?.deletePlaylist(pl.id);
                 },
                 child: ListTile(

@@ -79,6 +79,11 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                           confirmDeleteTrack(context, track.title),
                       onDismissed: (_) {
                         setState(() => _dismissed.add(track.id));
+                        final currentId =
+                            ref.read(currentMediaItemProvider).asData?.value?.id;
+                        if (currentId == track.id) {
+                          ref.read(audioHandlerProvider).stopAndClear();
+                        }
                         ref.read(downloadManagerProvider)?.deleteTrack(track.id);
                       },
                       child: TrackTile(track: track, queue: list, index: i),
