@@ -179,7 +179,7 @@ class AppDatabase extends _$AppDatabase {
       final elsewhere = await (select(localPlaylistTracks)
             ..where((t) =>
                 t.trackId.equals(join.trackId) &
-                t.playlistId.equals(playlistId).not()))
+                t.playlistId.isNotValue(playlistId)))
           .get();
       if (elsewhere.isEmpty) {
         final track = await trackById(join.trackId);

@@ -54,7 +54,7 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen> {
                       await ref.read(audioHandlerProvider).stopAndClear();
                     }
                   }
-                  ref.read(downloadManagerProvider)?.deletePlaylist(pl.id);
+                  await ref.read(downloadManagerProvider)?.deletePlaylist(pl.id);
                 },
                 child: ListTile(
                   leading: const Icon(Icons.queue_music),

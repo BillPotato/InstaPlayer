@@ -29,7 +29,7 @@ _manifest_lock = threading.Lock()
 
 @dataclass
 class FlacMeta:
-    title: str = ""
+    title: str | None = None
     artist: str = ""
     album: str = ""
     album_artist: str = ""
@@ -67,7 +67,7 @@ def scan_flacs(directory: Path) -> list[Path]:
 def parse_flac(path: Path) -> FlacMeta:
     audio = FLAC(str(path))
     meta = FlacMeta(
-        title=_first(audio, "title") or path.stem,
+        title=_first(audio, "title"),  # None → no tag; callers must handle
         artist=_first(audio, "artist") or "",
         album=_first(audio, "album") or "",
         album_artist=_first(audio, "albumartist", "album artist") or "",
@@ -149,6 +149,14 @@ def _track_entry(job_dir: Path, path: Path, n: int) -> dict | None:
         meta = parse_flac(path)
     except Exception:
         log.warning("Skipping unreadable %s (may still be downloading)", path)
+        return None
+
+    # SpotiFLAC names its working/intermediate files after the service's catalog
+    # ID (e.g. "B00XMYFB0K.flac"). These files have no title tag, so meta.title
+    # is None. Skip them — the watcher will retry next tick; if SpotiFLAC never
+    # tags the file it stays out of the library (better than a garbage-named entry).
+    if not meta.title:
+        log.debug("Skipping %s — no title tag (SpotiFLAC working file?)", path)
         return None
 
     # Use embedded picture if present; otherwise try to fetch from online sources.
