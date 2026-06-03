@@ -171,6 +171,16 @@ def _track_entry(job_dir: Path, path: Path, n: int) -> dict | None:
         art_file = str(art_path.relative_to(job_dir).as_posix())
         has_art = True
 
+    try:
+        file_size = path.stat().st_size
+    except OSError:
+        # SpotiFLAC may rename the file (e.g. from Spotify-ID.flac to the song
+        # title) after the directory scan but before we reach this point. Treat
+        # it as "still in progress" — the watcher will pick up the final name on
+        # the next tick.
+        log.warning("Skipping vanished %s (renamed by SpotiFLAC?)", path)
+        return None
+
     return {
         "n": n,
         "file": str(path.relative_to(job_dir).as_posix()),
@@ -183,7 +193,7 @@ def _track_entry(job_dir: Path, path: Path, n: int) -> dict | None:
         "isrc": meta.isrc,
         "quality": meta.quality,
         "mime": "audio/flac",
-        "fileSize": path.stat().st_size,
+        "fileSize": file_size,
         "hasArt": has_art,
         "artFile": art_file,
         "lyrics": meta.lyrics,
