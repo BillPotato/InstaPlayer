@@ -52,6 +52,27 @@ Flutter client  ──REST + WebSocket──►  Self-hosted backend (Docker)
   • drift (SQLite) mirror                 • SQLite metadata + FLAC file store
 ```
 
+## Backend configuration
+
+All settings are read from `backend/.env` (copy `backend/.env.example` and edit).
+Every variable is optional except `API_KEY`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `API_KEY` | `change-me-in-.env` | Bearer token the phone must send with every request — **change this** |
+| `DEFAULT_SERVICES` | `deezer,amazon,qobuz,tidal` | Comma-separated source order for SpotiFLAC. Remove a name to skip it entirely (e.g. `DEFAULT_SERVICES=deezer,amazon,qobuz` to skip Tidal when its proxies are all down) |
+| `QUALITY` | `LOSSLESS` | SpotiFLAC quality tier: `LOSSLESS`, `HIGH`, or `LOW` |
+| `TRACK_MAX_RETRIES` | `1` | Retries per track (0 = one attempt only, 1 = one retry, …). Higher values can help with transient errors but worsen rate-limit exhaustion on shared resolvers |
+| `QOBUZ_TOKEN` | *(unset)* | Qobuz account token. When set, SpotiFLAC uses authenticated Qobuz — **no proxy required, most reliable source** |
+| `JOB_RETENTION_HOURS` | `6` | How long a finished job's files are kept on the server before auto-deletion |
+| `DATA_DIR` | `./data` | Where job files and the SQLite DB live inside the container |
+
+**Tip:** If downloads are consistently failing, the most common cause is that the third-party
+proxy APIs SpotiFLAC uses are temporarily down or rate-limited. Options:
+- Add a `QOBUZ_TOKEN` (Qobuz account) for a proxy-free download path
+- Set `DEFAULT_SERVICES=deezer,amazon,qobuz` to skip Tidal entirely when its proxies are dead
+- Try again later — the public proxy infrastructure is community-maintained and sometimes goes down
+
 ## Security
 
 The backend must not be exposed unauthenticated. Use the bearer `API_KEY`, and expose it over

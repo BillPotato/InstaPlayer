@@ -17,7 +17,9 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
 
     # Source priority handed to SpotiFLAC. First available wins.
-    default_services: list[str] = ["tidal", "qobuz", "amazon", "deezer"]
+    # Tidal is last: its proxy network is frequently down and wastes 3-4 min
+    # per track when unreachable. Override via DEFAULT_SERVICES in .env.
+    default_services: list[str] = ["deezer", "amazon", "qobuz", "tidal"]
 
     # SpotiFLAC quality string ("LOSSLESS", "HI_RES", ...).
     quality: str = "LOSSLESS"
@@ -26,7 +28,9 @@ class Settings(BaseSettings):
     qobuz_token: str | None = None
 
     # Per-track download retries before giving up (transient source failures).
-    track_max_retries: int = 2
+    # 1 = one retry (2 total attempts). Higher values cause more zarz.moe 429s
+    # when the shared resolver is rate-limited. Override via TRACK_MAX_RETRIES.
+    track_max_retries: int = 1
 
     # How long a finished job's files are kept for the device to fetch before
     # the reaper deletes them. The backend stores nothing permanently.
