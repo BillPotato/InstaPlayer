@@ -24,6 +24,7 @@ from .config import Settings, get_settings
 from .db import SessionLocal
 from .ingest import scan_flacs, update_manifest
 from .models import Job
+from .spooty_adapter import SpootyError, run_spooty
 from .spotiflac_adapter import SpotiFlacError, run_spotiflac
 
 log = logging.getLogger(__name__)
@@ -188,17 +189,44 @@ class JobManager:
             self._watch(job_id, job_dir, spotify_url, progress, state)
         )
         try:
-            await loop.run_in_executor(
-                None,
-                run_spotiflac,
-                spotify_url,
-                job_dir,
-                services,
-                self.settings.quality,
-                self.settings.qobuz_token,
-                self.settings.track_max_retries,
-                on_progress,
-            )
+            try:
+                await loop.run_in_executor(
+                    None,
+                    run_spotiflac,
+                    spotify_url,
+                    job_dir,
+                    services,
+                    self.settings.quality,
+                    self.settings.qobuz_token,
+                    self.settings.track_max_retries,
+                    on_progress,
+                )
+            except SpotiFlacError as exc:
+                log.warning("SpotiFLAC failed for job %s: %s", job_id, exc)
+
+            if self.settings.spooty_base_url:
+                manifest = await loop.run_in_executor(
+                    None, update_manifest, job_dir, spotify_url
+                )
+                if manifest["trackCount"] == 0:
+                    log.info(
+                        "SpotiFLAC produced nothing for job %s — falling back to Spooty",
+                        job_id,
+                    )
+                    self._set_status(job_id, current="Falling back to alternate source…")
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            run_spooty,
+                            spotify_url,
+                            job_dir,
+                            self.settings.spooty_base_url,
+                            self.settings.spooty_format,
+                            on_progress,
+                        )
+                    except SpootyError as exc:
+                        log.warning("Spooty fallback failed for job %s: %s", job_id, exc)
+
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
@@ -242,10 +270,6 @@ class JobManager:
                     session.commit()
             self._last_event.pop(job_id, None)
             # Do NOT re-raise: the task exits cleanly after cleanup.
-        except SpotiFlacError as exc:
-            watcher.cancel()
-            shutil.rmtree(job_dir, ignore_errors=True)
-            self._set_status(job_id, status="failed", current=None, error=str(exc))
         except Exception as exc:  # pragma: no cover - defensive
             watcher.cancel()
             shutil.rmtree(job_dir, ignore_errors=True)
