@@ -6,10 +6,19 @@ We therefore treat it as a black box here and recover all metadata afterwards by
 scanning the produced files (see ``ingest.py``).
 
 For progress we parse the text SpotiFLAC prints/logs while running (it has no
-callback API): the "Found N track(s)" line gives the total, and each
-"Trying: <artist> — <title>" line gives the current track. Both stdout (plain
-``print``) and stderr (logging) are teed so we catch either form. This is
-best-effort — if the format changes, progress simply stays coarse, never crashes.
+callback API). The authoritative signal is the per-track header SpotiFLAC writes
+to stderr via ``tqdm.write`` for each track, e.g.::
+
+    Track [1/2] Bohemian Rhapsody — Queen (A Night at the Opera)
+
+which carries both the total (``[N/M]``) and the current track. We still honour
+the older "Found N track(s)" (total) and "Trying: <artist> — <title>" (current)
+lines as fallbacks for older SpotiFLAC versions. Note the "Trying:" lines come
+from ``logging`` whose handler is bound to the real stderr and so bypass our
+``redirect_stderr`` tee — the ``print``/``tqdm.write`` header does not, which is
+why the header is the reliable source. Both stdout and stderr are teed so we
+catch either form. This is best-effort — if the format changes, progress simply
+stays coarse, never crashes.
 """
 from __future__ import annotations
 
@@ -27,6 +36,24 @@ ProgressCb = Callable[[dict[str, Any]], None]
 
 _FOUND_RE = re.compile(r"Found\s+(\d+)\s+track", re.IGNORECASE)
 _TRYING_RE = re.compile(r"Trying:\s*(.+?)\s*$")
+# Per-track header: "Track [N/M] <title> — <artists> (<album>)". Anchored on
+# "Track [" so the tqdm progress bars ("Track: <name>  : 12%|…") never match.
+_TRACK_HDR_RE = re.compile(r"Track\s*\[(\d+)\s*/\s*(\d+)\]\s*(.+?)\s*$")
+
+
+def _clean_current(tail: str) -> str:
+    """Reduce a header tail ``<title> — <artists> (<album>)`` to
+    ``<title> — <artists>``. Splits on the em dash so a title or artist that
+    itself contains ``(...)`` survives, then drops the album, which is always the
+    trailing parenthetical. Album truncation can leave an unbalanced ``(`` in the
+    line, so we cut on the first ``" ("`` after the dash rather than match parens.
+    """
+    tail = tail.strip()
+    if " — " in tail:
+        title, rest = tail.split(" — ", 1)
+        artists = rest.split(" (", 1)[0]
+        return f"{title.strip()} — {artists.strip()}"
+    return tail
 
 
 class SpotiFlacError(RuntimeError):
@@ -57,6 +84,11 @@ class _ProgressTee(io.TextIOBase):
 
 
 def _parse_line(line: str, cb: ProgressCb) -> None:
+    header = _TRACK_HDR_RE.search(line)
+    if header:
+        # Authoritative: total from [N/M] and the current track in one update.
+        cb({"total": int(header.group(2)), "current": _clean_current(header.group(3))})
+        return
     found = _FOUND_RE.search(line)
     if found:
         cb({"total": int(found.group(1))})
