@@ -65,6 +65,9 @@ Every variable is optional except `API_KEY`.
 | `QOBUZ_TOKEN` | *(unset)* | Qobuz account token. When set, SpotiFLAC uses authenticated Qobuz — **no proxy required, most reliable source** |
 | `JOB_RETENTION_HOURS` | `6` | How long a finished job's files are kept on the server before auto-deletion |
 | `DATA_DIR` | `./data` | Where job files and the SQLite DB live inside the container |
+| `PROBE_SPOTIFY_URL` | *(a well-known track)* | Track downloaded by `POST /downloader/probe` to verify SpotiFLAC works end-to-end |
+| `PROBE_TIMEOUT_SECONDS` | `240` | Hard cap on a probe run |
+| `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
 
 **Tip:** If downloads are consistently failing, the most common cause is that the third-party
 proxy APIs SpotiFLAC uses are temporarily down or rate-limited. Options:

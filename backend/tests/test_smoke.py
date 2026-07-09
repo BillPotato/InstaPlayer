@@ -54,6 +54,31 @@ def test_schema_migration_idempotent():
     _init()  # second call must be a no-op
 
 
+def test_downloader_status():
+    r = client.get("/downloader/status", headers=AUTH)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) >= {"importable", "importError", "services", "activeJobs", "lastProbe"}
+    assert isinstance(body["importable"], bool)
+    assert isinstance(body["services"], list)
+    # Auth is required.
+    assert client.get("/downloader/status").status_code in (401, 403)
+
+
+def test_downloader_probe_unavailable_engine():
+    # In the dev venv SpotiFLAC is typically not installed; the probe must
+    # then refuse with 503 instead of pretending to test anything.
+    from app import downloader as dl
+    importable, _ = dl.check_importable()
+    r = client.post("/downloader/probe", headers=AUTH)
+    if importable:
+        # Engine present locally: smoke tests never run a real download, so
+        # only assert the endpoint responds sanely.
+        assert r.status_code in (200, 409)
+    else:
+        assert r.status_code == 503
+
+
 if __name__ == "__main__":
     test_health()
     test_auth_required()
@@ -61,4 +86,6 @@ if __name__ == "__main__":
     test_invalid_job_id_rejected()
     test_job_create_validates_url()
     test_schema_migration_idempotent()
+    test_downloader_status()
+    test_downloader_probe_unavailable_engine()
     print("all smoke tests passed")

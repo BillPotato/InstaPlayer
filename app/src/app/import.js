@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -8,7 +8,110 @@ import { useTheme } from '../theme/useTheme';
 import { useImportStore } from '../stores/importStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { startImport, cancelImport } from '../downloads/importManager';
+import { getDownloaderStatus, probeDownloader } from '../api/jobs';
+import { HttpError } from '../api/client';
 import { formatBytes } from '../utils/format';
+
+// Availability card for the server's download engine. SpotiFLAC's upstream
+// services break often, so surface state before the user pastes a link.
+function DownloaderStatusCard({ colors }) {
+  const [status, setStatus] = useState(null);
+  const [hidden, setHidden] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const refresh = async () => {
+    try {
+      setStatus(await getDownloaderStatus());
+    } catch (err) {
+      // Older backend without the endpoint — hide the card entirely.
+      if (err instanceof HttpError && err.status === 404) setHidden(true);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runProbe = async () => {
+    setTesting(true);
+    try {
+      // User explicitly asked for a test — always run a live one.
+      await probeDownloader(true);
+    } catch (err) {
+      Alert.alert('Test failed to run', String(err?.message || err));
+    } finally {
+      setTesting(false);
+      refresh();
+    }
+  };
+
+  if (hidden || !status) return null;
+
+  const probeAgeMin = status.lastProbe?.at
+    ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
+    : null;
+  const probeStale = probeAgeMin == null || probeAgeMin > 90;
+  let icon = 'checkmark-circle';
+  let color = colors.accent;
+  let headline = 'Download engine ready';
+  let note = `Sources: ${status.services.join(', ')}${status.version ? ` · SpotiFLAC ${status.version}` : ''}`;
+  if (!status.importable) {
+    icon = 'close-circle';
+    color = colors.danger;
+    headline = 'Download engine unavailable on server';
+    note = status.importError || 'SpotiFLAC could not be loaded.';
+  } else if (status.lastProbe && !status.lastProbe.ok && !probeStale) {
+    icon = 'warning';
+    color = colors.danger;
+    headline = 'Downloads may fail right now';
+    note = status.lastProbe.detail || 'The last download test failed.';
+  } else if (status.lastJob?.status === 'failed') {
+    icon = 'warning';
+    color = '#E5A50A';
+    headline = 'Last server download failed';
+    note = status.lastJob.error || 'The most recent job failed.';
+  }
+
+  return (
+    <View style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Ionicons name={icon} size={20} color={color} />
+        <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14, marginLeft: 8, flex: 1 }}>
+          {headline}
+        </Text>
+      </View>
+      <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6, lineHeight: 17 }}>{note}</Text>
+      {status.lastProbe?.ok && !probeStale ? (
+        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
+          Download test passed{probeAgeMin != null ? ` ${probeAgeMin} min ago` : ''} (
+          {Math.round(status.lastProbe.elapsedSeconds)}s).
+        </Text>
+      ) : null}
+      {status.importable ? (
+        <Pressable
+          onPress={runProbe}
+          disabled={testing || status.probing || status.activeJobs}
+          style={({ pressed }) => ({
+            flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+            marginTop: 10, opacity: testing || status.probing || status.activeJobs ? 0.5 : pressed ? 0.7 : 1,
+          })}
+        >
+          {testing || status.probing ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <Ionicons name="pulse-outline" size={16} color={colors.accent} />
+          )}
+          <Text style={{ color: colors.accent, fontSize: 13, fontWeight: '600', marginLeft: 6 }}>
+            {testing || status.probing
+              ? 'Testing — downloads one sample track, may take a couple of minutes…'
+              : 'Test downloads now'}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 function Bar({ fraction, colors }) {
   return (
@@ -70,6 +173,7 @@ export default function ImportScreen() {
     <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ padding: 20 }}>
       {!running ? (
         <>
+          <DownloaderStatusCard colors={colors} />
           <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600', marginBottom: 8 }}>Paste a link</Text>
           <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 19, marginBottom: 12 }}>
             Paste a playlist, album or track link. Your server fetches the audio and this device

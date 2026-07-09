@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import downloader
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
@@ -54,11 +55,16 @@ def _fail_orphaned_jobs() -> None:
 async def lifespan(app: FastAPI):  # noqa: ANN001
     init_db()
     _fail_orphaned_jobs()
-    reaper = asyncio.create_task(get_job_manager().reaper())
+    manager = get_job_manager()
+    reaper = asyncio.create_task(manager.reaper())
+    prober = asyncio.create_task(
+        downloader.periodic_probe_loop(get_settings(), manager.has_active_jobs)
+    )
     try:
         yield
     finally:
         reaper.cancel()
+        prober.cancel()
 
 
 app = FastAPI(title="Music App Backend", version="0.2.0", lifespan=lifespan)
@@ -74,6 +80,42 @@ async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# --------------------------------------------------------------------------
+# Downloader availability (SpotiFLAC's upstream services break regularly)
+# --------------------------------------------------------------------------
+@app.get("/downloader/status", dependencies=[Depends(require_auth)])
+async def downloader_status(
+    settings: Settings = Depends(get_settings),
+    manager: JobManager = Depends(get_job_manager),
+) -> dict:
+    """Cheap availability report: package importable, configured services,
+    most recent job outcome, and the cached result of the last deep probe."""
+    return await downloader.status(settings, manager.has_active_jobs())
+
+
+@app.post("/downloader/probe", dependencies=[Depends(require_auth)])
+async def downloader_probe(
+    force: bool = False,
+    settings: Settings = Depends(get_settings),
+    manager: JobManager = Depends(get_job_manager),
+) -> dict:
+    """Deep check: answers instantly from the stored periodic-probe result
+    while it is fresh. ``?force=true`` (or a stale/missing result) runs a
+    real probe — downloads one sample track, takes seconds to minutes.
+    Live runs are rejected while a real job is active so they never compete
+    for the rate-limited upstream services."""
+    importable, import_error = downloader.check_importable()
+    if not importable:
+        raise HTTPException(503, f"SpotiFLAC is not importable: {import_error}")
+    needs_live_run = force or not downloader.probe_is_fresh(settings)
+    if needs_live_run:
+        if manager.has_active_jobs():
+            raise HTTPException(409, "A download job is running; try again when it finishes")
+        if downloader.probing():
+            raise HTTPException(409, "A probe is already running")
+    return await downloader.probe_or_cached(settings, force)
 
 
 # --------------------------------------------------------------------------

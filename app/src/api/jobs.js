@@ -30,6 +30,21 @@ export function artUrl(jobId, n) {
   return `${serverConfig().baseUrl}/jobs/${jobId}/art/${n}`;
 }
 
+// Availability of the server's download engine (SpotiFLAC). status is cheap;
+// probe actually downloads one sample track server-side and can take minutes.
+export function getDownloaderStatus() {
+  return apiFetch('/downloader/status');
+}
+
+// force=true always runs a live download test; otherwise the backend answers
+// instantly from its periodic-probe cache while fresh.
+export function probeDownloader(force = false) {
+  return apiFetch(`/downloader/probe${force ? '?force=true' : ''}`, {
+    method: 'POST',
+    timeoutMs: 300000,
+  });
+}
+
 // Connection test used by the setup/server screens. Runs against explicit
 // values (not yet saved). /health proves reachability; a GET for a job id
 // that cannot exist proves the key: 404 = authorized, 401 = bad key.

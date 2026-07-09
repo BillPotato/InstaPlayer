@@ -120,6 +120,8 @@ This is the web server file. It defines all the URLs your phone can call:
 | `GET /jobs/{id}/files/{n}` | Download song number `n` |
 | `GET /jobs/{id}/art/{n}` | Download the album art for song `n` |
 | `WS /jobs/{id}/events` | A live connection that streams progress updates |
+| `GET /downloader/status` | Is the download engine (SpotiFLAC) healthy? Cheap: install check + version, configured sources, last job outcome, stored probe result |
+| `POST /downloader/probe` | Deep check: downloads one sample track into a throwaway dir and reports ok/failure. Answers instantly from the stored result while fresh (kept warm by a periodic probe every `PROBE_INTERVAL_MINUTES`); `?force=true` always runs live. Live runs are rejected (409) while a job is active. See `PROBE_SPOTIFY_URL` / `PROBE_TIMEOUT_SECONDS` |
 
 It also runs two things at startup:
 - **Orphan cleanup**: if the server crashed while a job was running, that job
