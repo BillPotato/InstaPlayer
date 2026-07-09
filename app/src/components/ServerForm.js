@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
 import { useSettingsStore, normalizeUrl } from '../stores/settingsStore';
@@ -76,6 +76,17 @@ export function ServerForm({ onSaved }) {
         secureTextEntry
         style={inputStyle}
       />
+
+      {Platform.OS === 'android' && /localhost|127\.0\.0\.1/i.test(url) ? (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 12 }}>
+          <Ionicons name="information-circle" size={18} color={colors.accent} />
+          <Text style={{ color: colors.textDim, fontSize: 13, marginLeft: 8, flex: 1, lineHeight: 18 }}>
+            On Android, “localhost” is the phone itself. For a server on your computer use{' '}
+            <Text style={{ color: colors.text }}>http://10.0.2.2:8000</Text> on an emulator, or your
+            computer's LAN IP (like http://192.168.1.x:8000) on a real device.
+          </Text>
+        </View>
+      ) : null}
 
       {result ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>

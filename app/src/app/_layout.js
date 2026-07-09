@@ -65,6 +65,7 @@ export default function RootLayout() {
         <Stack.Screen name="player" options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="queue" options={{ title: 'Queue', presentation: 'modal' }} />
         <Stack.Screen name="import" options={{ title: 'Add music', presentation: 'modal' }} />
+        <Stack.Screen name="import-local" options={{ title: 'Import from device', presentation: 'modal' }} />
         <Stack.Screen name="settings/index" options={{ title: 'Settings' }} />
         <Stack.Screen name="settings/server" options={{ title: 'Server' }} />
         <Stack.Screen name="settings/appearance" options={{ title: 'Appearance' }} />

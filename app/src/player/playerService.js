@@ -3,6 +3,7 @@ import { Platform, PermissionsAndroid } from 'react-native';
 import { usePlayerStore, currentTrackOf } from './playerStore';
 import { audioUriForTrack, artUriForTrack } from '../downloads/paths';
 import { logPlay } from '../db/historyRepo';
+import { setDurationMs } from '../db/trackRepo';
 import { getSetting, setSetting } from '../db/settingsRepo';
 
 // Playback engine: one expo-audio AudioPlayer + a JS-managed queue.
@@ -16,6 +17,7 @@ import { getSetting, setSetting } from '../db/settingsRepo';
 let player = null;
 let advancing = false;
 let historyLogged = false;
+let durationSaved = false;
 let askedNotifPermission = false;
 let sleepTimerHandle = null;
 
@@ -48,6 +50,14 @@ function onStatus(status) {
     historyLogged = true;
     logPlay(track.id).catch(() => {});
   }
+  // Locally imported files may arrive without a parsed duration; save the
+  // real one the first time the track actually loads.
+  if (track && !durationSaved && !track.duration_ms && status.isLoaded && status.duration > 0) {
+    durationSaved = true;
+    const ms = Math.round(status.duration * 1000);
+    track.duration_ms = ms;
+    setDurationMs(track.id, ms).catch(() => {});
+  }
   if (status.didJustFinish && !advancing) {
     advancing = true;
     try {
@@ -73,6 +83,7 @@ function loadCurrent(autoplay) {
   const track = currentTrackOf(s);
   if (!track || !player) return;
   historyLogged = false;
+  durationSaved = false;
   player.replace({ uri: audioUriForTrack(track) });
   player.setPlaybackRate(s.rate, 'high');
   player.setActiveForLockScreen(true, metadataFor(track), {

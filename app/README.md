@@ -49,6 +49,14 @@ stores/         settings (secure-store backed), library invalidation, import pro
 theme/          dark/light palettes + accent colors
 ```
 
+## Local imports
+
+Besides server imports, Library → + → "Import from this device" imports audio already on the
+phone (system file/folder picker, no storage permission). Files are copied into app storage;
+FLAC (Vorbis) and MP3 (ID3v2) tags — title/artist/album/track#/art/lyrics — are parsed by the
+dependency-free readers in `src/localimport/metadata.js`; M4A/OGG/WAV fall back to filename
+title, and missing durations are backfilled from the player on first playback.
+
 ## Key design decisions
 
 - **Playback engine**: one `expo-audio` `AudioPlayer` + a JS-managed queue

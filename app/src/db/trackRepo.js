@@ -94,6 +94,19 @@ export async function tracksBySize() {
   return getDb().getAllAsync('SELECT * FROM tracks ORDER BY file_size DESC');
 }
 
+export async function findDuplicate(title, artist, fileSize) {
+  return getDb().getFirstAsync(
+    `SELECT id FROM tracks
+     WHERE file_size = ? AND title = ? COLLATE NOCASE AND artist = ? COLLATE NOCASE
+     LIMIT 1`,
+    fileSize, title, artist
+  );
+}
+
+export async function setDurationMs(id, durationMs) {
+  await getDb().runAsync('UPDATE tracks SET duration_ms = ? WHERE id = ?', durationMs, id);
+}
+
 export async function findByIsrc(isrc) {
   if (!isrc) return null;
   return getDb().getFirstAsync('SELECT * FROM tracks WHERE isrc = ? LIMIT 1', isrc);

@@ -134,6 +134,7 @@ export default function LibraryScreen() {
         title="Add"
         items={[
           { key: 'import', label: 'Add music from your server', icon: 'cloud-download-outline', onPress: () => router.push('/import') },
+          { key: 'local', label: 'Import from this device', icon: 'phone-portrait-outline', onPress: () => router.push('/import-local') },
           { key: 'playlist', label: 'New playlist', icon: 'add-circle-outline', onPress: () => setNewPlaylistOpen(true) },
         ]}
       />
