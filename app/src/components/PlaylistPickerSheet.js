@@ -3,7 +3,9 @@ import { Modal, Pressable, ScrollView, Text, View, ToastAndroid, Platform } from
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
-import { allPlaylists, createPlaylist, addTracksToPlaylist } from '../db/playlistRepo';
+import {
+  allPlaylists, createPlaylist, addTracksToPlaylist, playlistIdsContainingTrack,
+} from '../db/playlistRepo';
 import { bumpLibrary } from '../stores/libraryStore';
 import { InputDialog } from './InputDialog';
 
@@ -16,17 +18,29 @@ export function PlaylistPickerSheet({ visible, trackIds, onClose }) {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
   const [playlists, setPlaylists] = useState([]);
+  const [containing, setContaining] = useState(new Set());
   const [showNew, setShowNew] = useState(false);
 
   useEffect(() => {
-    if (visible) allPlaylists().then(setPlaylists).catch(() => setPlaylists([]));
-  }, [visible]);
+    if (!visible) return;
+    allPlaylists().then(setPlaylists).catch(() => setPlaylists([]));
+    // Mark playlists that already contain the song (single-track case).
+    if (trackIds.length === 1) {
+      playlistIdsContainingTrack(trackIds[0]).then(setContaining).catch(() => setContaining(new Set()));
+    } else {
+      setContaining(new Set());
+    }
+  }, [visible, trackIds]);
 
   const addTo = async (playlistId, name) => {
     onClose();
-    await addTracksToPlaylist(playlistId, trackIds);
-    bumpLibrary();
-    notify(`Added to ${name}`);
+    const added = await addTracksToPlaylist(playlistId, trackIds);
+    if (added > 0) {
+      bumpLibrary();
+      notify(`Added to ${name}`);
+    } else {
+      notify(`Already in ${name}`);
+    }
   };
 
   return (
@@ -83,6 +97,9 @@ export function PlaylistPickerSheet({ visible, trackIds, onClose }) {
                   <Text numberOfLines={1} style={{ color: colors.text, fontSize: 15 }}>{p.name}</Text>
                   <Text style={{ color: colors.textDim, fontSize: 12 }}>{p.track_count} songs</Text>
                 </View>
+                {containing.has(p.id) ? (
+                  <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
+                ) : null}
               </Pressable>
             ))}
           </ScrollView>

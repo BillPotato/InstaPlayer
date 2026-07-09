@@ -37,6 +37,13 @@ export async function allPlaylists() {
   );
 }
 
+export async function isTrackInAnyPlaylist(trackId) {
+  const row = await getDb().getFirstAsync(
+    'SELECT 1 AS present FROM playlist_tracks WHERE track_id = ? LIMIT 1', trackId
+  );
+  return !!row;
+}
+
 export async function playlistTracks(playlistId) {
   return getDb().getAllAsync(
     `SELECT t.*, pt.id AS entry_id, pt.position
@@ -47,23 +54,43 @@ export async function playlistTracks(playlistId) {
   );
 }
 
+// Adds tracks, skipping any already in the playlist. Returns how many were
+// actually added.
 export async function addTracksToPlaylist(playlistId, trackIds) {
   const db = getDb();
+  let added = 0;
   await db.withExclusiveTransactionAsync(async (tx) => {
+    const existingRows = await tx.getAllAsync(
+      'SELECT DISTINCT track_id FROM playlist_tracks WHERE playlist_id = ?', playlistId
+    );
+    const existing = new Set(existingRows.map((r) => r.track_id));
     const row = await tx.getFirstAsync(
       'SELECT COALESCE(MAX(position), -1) AS max_pos FROM playlist_tracks WHERE playlist_id = ?',
       playlistId
     );
     let pos = (row?.max_pos ?? -1) + 1;
     for (const trackId of trackIds) {
+      if (existing.has(trackId)) continue;
       await tx.runAsync(
         'INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)',
         playlistId, trackId, pos
       );
+      existing.add(trackId);
       pos += 1;
+      added += 1;
     }
-    await tx.runAsync('UPDATE playlists SET updated_at = ? WHERE id = ?', Date.now(), playlistId);
+    if (added > 0) {
+      await tx.runAsync('UPDATE playlists SET updated_at = ? WHERE id = ?', Date.now(), playlistId);
+    }
   });
+  return added;
+}
+
+export async function playlistIdsContainingTrack(trackId) {
+  const rows = await getDb().getAllAsync(
+    'SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?', trackId
+  );
+  return new Set(rows.map((r) => r.playlist_id));
 }
 
 export async function removePlaylistEntry(playlistId, entryId) {

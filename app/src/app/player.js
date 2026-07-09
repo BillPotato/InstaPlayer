@@ -11,6 +11,8 @@ import { PlaylistPickerSheet } from '../components/PlaylistPickerSheet';
 import { useTrackMenu } from '../components/TrackMenu';
 import { useTheme } from '../theme/useTheme';
 import { useCurrentTrack, usePlayerStore } from '../player/playerStore';
+import { useLibraryStore } from '../stores/libraryStore';
+import { isTrackInAnyPlaylist } from '../db/playlistRepo';
 import {
   togglePlay, next, previous, seekTo, toggleShuffle, cycleRepeat,
   setRate, setSleepTimer, clearSleepTimer,
@@ -39,11 +41,25 @@ export default function PlayerScreen() {
   const [speedOpen, setSpeedOpen] = useState(false);
   const [sleepOpen, setSleepOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [inPlaylist, setInPlaylist] = useState(false);
+  const libraryTick = useLibraryStore((s) => s.tick);
   const menu = useTrackMenu();
 
   useEffect(() => {
     if (!track) router.back();
   }, [track, router]);
+
+  useEffect(() => {
+    let alive = true;
+    if (track?.id) {
+      isTrackInAnyPlaylist(track.id).then((v) => alive && setInPlaylist(v));
+    } else {
+      setInPlaylist(false);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [track?.id, libraryTick]);
 
   if (!track) return null;
 
@@ -93,7 +109,11 @@ export default function PlayerScreen() {
           <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 14, marginTop: 2 }}>{track.artist}</Text>
         </View>
         <ControlIcon onPress={() => setPickerOpen(true)}>
-          <Ionicons name="add-circle-outline" size={24} color={colors.text} />
+          <Ionicons
+            name={inPlaylist ? 'checkmark-circle' : 'add-circle-outline'}
+            size={24}
+            color={inPlaylist ? colors.accent : colors.text}
+          />
         </ControlIcon>
       </View>
 
