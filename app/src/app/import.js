@@ -251,23 +251,23 @@ export default function ImportScreen() {
             Saved to this device {st.total ? `— ${st.saved}/${st.total}` : `— ${st.saved}`}
           </Text>
           <Bar fraction={st.total ? st.saved / st.total : 0} colors={colors} />
-          {st.pullProgress ? (
-            <View style={{ marginTop: 10 }}>
+          {Object.entries(st.pulls).map(([n, pull]) => (
+            <View key={n} style={{ marginTop: 10 }}>
               <Text numberOfLines={1} style={{ color: colors.text, fontSize: 13 }}>
-                Downloading: {st.pullProgress.title}
+                Downloading: {pull.title}
               </Text>
               <View style={{ marginTop: 4 }}>
                 <Bar
-                  fraction={st.pullProgress.totalBytes > 0 ? st.pullProgress.bytesWritten / st.pullProgress.totalBytes : 0}
+                  fraction={pull.totalBytes > 0 ? pull.bytesWritten / pull.totalBytes : 0}
                   colors={colors}
                 />
               </View>
               <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 4 }}>
-                {formatBytes(st.pullProgress.bytesWritten)}
-                {st.pullProgress.totalBytes > 0 ? ` of ${formatBytes(st.pullProgress.totalBytes)}` : ''}
+                {formatBytes(pull.bytesWritten)}
+                {pull.totalBytes > 0 ? ` of ${formatBytes(pull.totalBytes)}` : ''}
               </Text>
             </View>
-          ) : null}
+          ))}
 
           {st.failed > 0 ? (
             <Text style={{ color: colors.danger, fontSize: 13, marginTop: 12 }}>

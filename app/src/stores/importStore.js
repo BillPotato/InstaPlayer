@@ -11,7 +11,7 @@ const idle = {
   saved: 0,
   failed: 0,
   currentLabel: null,
-  pullProgress: null, // { n, title, bytesWritten, totalBytes }
+  pulls: {}, // active device pulls, keyed by n: { title, bytesWritten, totalBytes }
   error: null,
   connected: false,
 };

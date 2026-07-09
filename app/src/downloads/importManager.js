@@ -16,6 +16,7 @@ import { ensureDirs, trackFile, partFile, artFile, sweepPartFiles } from './path
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = [2000, 5000, 15000];
+const PARALLEL_PULLS = 3;
 
 let current = null;
 let appStateSub = null;
@@ -61,7 +62,7 @@ function attach(jobId, sourceUrl) {
     socket: null,
     pumping: false,
     terminalStatus: null,
-    manifestComplete: false,
+    inFlight: new Map(), // n -> in-progress download promise
   };
   patchImport({ jobId, sourceUrl, phase: 'active' });
 
@@ -128,30 +129,47 @@ async function ensureManifest(minCount) {
   }
 }
 
+// Runs up to PARALLEL_PULLS downloads concurrently; each file_ready event or
+// finished download re-enters the loop to top the pool back up.
 function pump() {
   if (!current || current.pumping) return;
   current.pumping = true;
   (async () => {
     try {
       while (current) {
-        const row = await jobRepo.nextPendingImportTrack(current.jobId);
-        if (!row) {
+        const rows = await jobRepo.pendingImportTracks(current.jobId);
+        const available = rows.filter((r) => !current.inFlight.has(r.n));
+
+        while (current && current.inFlight.size < PARALLEL_PULLS && available.length) {
+          const row = available.shift();
+          let entry = current.manifest?.tracks?.find((t) => t.n === row.n);
+          if (!entry) {
+            await ensureManifest(row.n + 1);
+            entry = current.manifest?.tracks?.find((t) => t.n === row.n);
+          }
+          if (!entry) {
+            // Manifest gone (job expired/cancelled) — nothing to pull for it.
+            await jobRepo.setImportTrackState(current.jobId, row.n, 'failed');
+            continue;
+          }
+          const jobRef = current;
+          const promise = downloadOne(entry, row)
+            .catch((err) => console.warn('import pull crashed', err))
+            .finally(() => {
+              jobRef.inFlight.delete(row.n);
+            });
+          current.inFlight.set(row.n, promise);
+        }
+
+        if (!current) return;
+        if (current.inFlight.size === 0) {
           if (current.terminalStatus) {
             await finalize();
           }
           return;
         }
-        const entry = current.manifest?.tracks?.find((t) => t.n === row.n);
-        if (!entry) {
-          await ensureManifest(row.n + 1);
-          if (!current.manifest?.tracks?.some((t) => t.n === row.n)) {
-            // Manifest gone (job expired/cancelled) — nothing more to pull.
-            await jobRepo.setImportTrackState(current.jobId, row.n, 'failed');
-            continue;
-          }
-          continue;
-        }
-        await downloadOne(entry, row);
+        // Wait for one slot to free up, then re-evaluate.
+        await Promise.race([...current.inFlight.values()]);
       }
     } catch (err) {
       console.warn('import pump crashed', err);
@@ -161,6 +179,14 @@ function pump() {
   })();
 }
 
+// Update one download's slot in the active-pulls map (null clears it).
+function patchPull(n, fields) {
+  const pulls = { ...useImportStore.getState().pulls };
+  if (fields === null) delete pulls[n];
+  else pulls[n] = { ...(pulls[n] || {}), ...fields };
+  patchImport({ pulls });
+}
+
 async function downloadOne(entry, row) {
   const { jobId } = current;
   await jobRepo.setImportTrackState(jobId, entry.n, 'downloading');
@@ -168,15 +194,11 @@ async function downloadOne(entry, row) {
     const trackId = randomId();
     const part = partFile(trackId);
     try {
-      patchImport({
-        pullProgress: { n: entry.n, title: entry.title, bytesWritten: 0, totalBytes: entry.fileSize || -1 },
-      });
+      patchPull(entry.n, { title: entry.title, bytesWritten: 0, totalBytes: entry.fileSize || -1 });
       const task = File.createDownloadTask(jobsApi.fileUrl(jobId, entry.n), part, {
         headers: authHeaders(),
         onProgress: ({ bytesWritten, totalBytes }) => {
-          patchImport({
-            pullProgress: { n: entry.n, title: entry.title, bytesWritten, totalBytes },
-          });
+          patchPull(entry.n, { title: entry.title, bytesWritten, totalBytes });
         },
       });
       await task.downloadAsync();
@@ -220,8 +242,9 @@ async function downloadOne(entry, row) {
         sourceUrl: current.sourceUrl,
       });
       await jobRepo.setImportTrackState(jobId, entry.n, 'done', trackId);
+      patchPull(entry.n, null);
       const counts = await jobRepo.importTrackCounts(jobId);
-      patchImport({ saved: counts?.done ?? 0, failed: counts?.failed ?? 0, pullProgress: null });
+      patchImport({ saved: counts?.done ?? 0, failed: counts?.failed ?? 0 });
       bumpLibrary();
       return;
     } catch (err) {
@@ -237,8 +260,9 @@ async function downloadOne(entry, row) {
     }
   }
   await jobRepo.setImportTrackState(jobId, entry.n, 'failed');
+  patchPull(entry.n, null);
   const counts = await jobRepo.importTrackCounts(jobId);
-  patchImport({ saved: counts?.done ?? 0, failed: counts?.failed ?? 0, pullProgress: null });
+  patchImport({ saved: counts?.done ?? 0, failed: counts?.failed ?? 0 });
 }
 
 async function finalize() {
@@ -262,7 +286,7 @@ async function finalize() {
 
   if (success) {
     await jobRepo.updateJob(jobId, { status: 'done' });
-    patchImport({ phase: 'done', saved, failed: 0, pullProgress: null, currentLabel: null });
+    patchImport({ phase: 'done', saved, failed: 0, pulls: {}, currentLabel: null });
   } else {
     let error = backendError;
     if (!error) {
@@ -271,7 +295,7 @@ async function finalize() {
       else error = 'Import failed';
     }
     await jobRepo.updateJob(jobId, { status: 'failed', error });
-    patchImport({ phase: 'failed', error, saved, failed: failedPulls, pullProgress: null, currentLabel: null });
+    patchImport({ phase: 'failed', error, saved, failed: failedPulls, pulls: {}, currentLabel: null });
   }
   current = null;
   if (saved > 0) bumpLibrary();

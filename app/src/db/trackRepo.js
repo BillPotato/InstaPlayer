@@ -20,6 +20,16 @@ export async function getTrack(id) {
   return getDb().getFirstAsync('SELECT * FROM tracks WHERE id = ?', id);
 }
 
+export async function tracksByIds(ids) {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await getDb().getAllAsync(
+    `SELECT * FROM tracks WHERE id IN (${placeholders})`, ...ids
+  );
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
 export async function allTracks() {
   return getDb().getAllAsync(
     'SELECT * FROM tracks ORDER BY title COLLATE NOCASE, artist COLLATE NOCASE'

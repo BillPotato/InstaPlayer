@@ -57,9 +57,9 @@ export async function bumpImportTrackAttempts(jobId, n) {
   );
 }
 
-export async function nextPendingImportTrack(jobId) {
-  return getDb().getFirstAsync(
-    "SELECT * FROM import_tracks WHERE job_id = ? AND state IN ('pending', 'downloading') ORDER BY n LIMIT 1",
+export async function pendingImportTracks(jobId) {
+  return getDb().getAllAsync(
+    "SELECT * FROM import_tracks WHERE job_id = ? AND state IN ('pending', 'downloading') ORDER BY n",
     jobId
   );
 }

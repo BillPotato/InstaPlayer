@@ -3,8 +3,12 @@ import { Platform, PermissionsAndroid } from 'react-native';
 import { usePlayerStore, currentTrackOf } from './playerStore';
 import { audioUriForTrack, artUriForTrack } from '../downloads/paths';
 import { logPlay } from '../db/historyRepo';
-import { setDurationMs } from '../db/trackRepo';
+import { setDurationMs, tracksByIds } from '../db/trackRepo';
 import { getSetting, setSetting } from '../db/settingsRepo';
+
+const PERSIST_KEY = 'player_state_v1';
+const FADE_MS = 250;
+const SLEEP_FADE_MS = 3000;
 
 // Playback engine: one expo-audio AudioPlayer + a JS-managed queue.
 //
@@ -20,9 +24,92 @@ let historyLogged = false;
 let durationSaved = false;
 let askedNotifPermission = false;
 let sleepTimerHandle = null;
+let fadeHandle = null;
+let persistHandle = null;
+let statusTicks = 0;
 
 const store = () => usePlayerStore.getState();
 const patch = (fields) => usePlayerStore.getState().patch(fields);
+
+// ---------------------------------------------------------------------------
+// Volume fades (expo-audio has no native fade; ramp the volume property)
+// ---------------------------------------------------------------------------
+
+function cancelFade() {
+  if (fadeHandle) {
+    clearInterval(fadeHandle);
+    fadeHandle = null;
+  }
+}
+
+function fadeTo(target, ms, done) {
+  if (!player) {
+    done?.();
+    return;
+  }
+  cancelFade();
+  const start = player.volume;
+  const steps = Math.max(1, Math.round(ms / 50));
+  let i = 0;
+  fadeHandle = setInterval(() => {
+    i += 1;
+    player.volume = Math.max(0, Math.min(1, start + ((target - start) * i) / steps));
+    if (i >= steps) {
+      cancelFade();
+      done?.();
+    }
+  }, 50);
+}
+
+// ---------------------------------------------------------------------------
+// Persistence: queue + position survive app restarts (restored paused)
+// ---------------------------------------------------------------------------
+
+function schedulePersist() {
+  if (persistHandle) clearTimeout(persistHandle);
+  persistHandle = setTimeout(() => {
+    persistHandle = null;
+    const s = store();
+    const payload =
+      s.pos >= 0
+        ? JSON.stringify({
+            ids: s.queue.map((t) => t.id),
+            order: s.order,
+            pos: s.pos,
+            shuffle: s.shuffle,
+            repeat: s.repeat,
+            currentTime: Math.floor(s.currentTime),
+          })
+        : '';
+    setSetting(PERSIST_KEY, payload).catch(() => {});
+  }, 800);
+}
+
+async function restorePersistedState() {
+  const raw = await getSetting(PERSIST_KEY, '');
+  if (!raw) return;
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  const tracks = await tracksByIds(saved.ids || []);
+  // Deleted tracks would shift every order index; only restore intact queues.
+  if (!tracks.length || tracks.length !== saved.ids.length) return;
+  patch({
+    queue: tracks,
+    order: saved.order,
+    pos: Math.min(Math.max(0, saved.pos), saved.order.length - 1),
+    shuffle: !!saved.shuffle,
+    repeat: ['off', 'all', 'one'].includes(saved.repeat) ? saved.repeat : 'off',
+  });
+  loadCurrent(false);
+  if (saved.currentTime > 0) {
+    seekTo(saved.currentTime);
+    patch({ currentTime: saved.currentTime });
+  }
+}
 
 export async function initPlayer() {
   if (player) return;
@@ -35,6 +122,16 @@ export async function initPlayer() {
   player.addListener('playbackStatusUpdate', onStatus);
   const savedRate = parseFloat(await getSetting('playback_rate', '1'));
   if (Number.isFinite(savedRate) && savedRate > 0) patch({ rate: savedRate });
+  // Persist queue shape changes; position is folded in on pause/track ticks.
+  usePlayerStore.subscribe((s, prev) => {
+    if (
+      s.queue !== prev.queue || s.order !== prev.order || s.pos !== prev.pos ||
+      s.shuffle !== prev.shuffle || s.repeat !== prev.repeat
+    ) {
+      schedulePersist();
+    }
+  });
+  await restorePersistedState().catch(() => {});
 }
 
 function onStatus(status) {
@@ -66,6 +163,9 @@ function onStatus(status) {
       advancing = false;
     }
   }
+  // Fold the playhead into the persisted state every ~10s while playing.
+  statusTicks += 1;
+  if (status.playing && statusTicks % 40 === 0) schedulePersist();
 }
 
 function metadataFor(track) {
@@ -84,6 +184,8 @@ function loadCurrent(autoplay) {
   if (!track || !player) return;
   historyLogged = false;
   durationSaved = false;
+  cancelFade();
+  player.volume = 1;
   player.replace({ uri: audioUriForTrack(track) });
   player.setPlaybackRate(s.rate, 'high');
   player.setActiveForLockScreen(true, metadataFor(track), {
@@ -136,12 +238,33 @@ export function shufflePlay(tracks) {
 export function togglePlay() {
   const s = store();
   if (s.pos < 0 || !player) return;
-  if (s.isPlaying) player.pause();
-  else player.play();
+  if (s.isPlaying) {
+    pause();
+  } else {
+    cancelFade();
+    player.volume = 0;
+    player.play();
+    fadeTo(1, FADE_MS);
+  }
 }
 
+// Fading pause (user-facing). hardPause is for cases where the audio has
+// already ended or must stop immediately.
 export function pause() {
-  player?.pause();
+  if (!player) return;
+  fadeTo(0, FADE_MS, () => {
+    player.pause();
+    player.volume = 1;
+    schedulePersist();
+  });
+}
+
+function hardPause() {
+  if (!player) return;
+  cancelFade();
+  player.pause();
+  player.volume = 1;
+  schedulePersist();
 }
 
 export function seekTo(seconds) {
@@ -185,7 +308,7 @@ function handleTrackEnd() {
   const s = store();
   if (s.sleepEndOfTrack) {
     clearSleepTimer();
-    pause();
+    hardPause();
     return;
   }
   if (s.repeat === 'one') {
@@ -196,7 +319,7 @@ function handleTrackEnd() {
   if (s.pos + 1 >= s.order.length && s.repeat !== 'all') {
     // End of queue: stay on the last track, paused at the start.
     seekTo(0);
-    pause();
+    hardPause();
     return;
   }
   advanceTo(s.pos + 1, { autoplay: true });
@@ -331,6 +454,8 @@ export function handleTrackDeleted(trackId) {
 }
 
 export function stopAndClear() {
+  cancelFade();
+  if (player) player.volume = 1;
   player?.pause();
   try {
     player?.clearLockScreenControls();
@@ -356,7 +481,12 @@ export function setSleepTimer(minutes) {
   sleepTimerHandle = setTimeout(() => {
     sleepTimerHandle = null;
     patch({ sleepAt: null, sleepEndOfTrack: false });
-    pause();
+    // Gentle fade-out rather than an abrupt stop mid-song.
+    fadeTo(0, SLEEP_FADE_MS, () => {
+      player?.pause();
+      if (player) player.volume = 1;
+      schedulePersist();
+    });
   }, ms);
 }
 
