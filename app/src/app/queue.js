@@ -1,10 +1,11 @@
+import { useMemo } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ReorderableList, { useReorderableDrag } from 'react-native-reorderable-list';
 import { TrackRow } from '../components/TrackRow';
 import { EmptyState } from '../components/EmptyState';
 import { useTheme } from '../theme/useTheme';
-import { usePlayerStore, orderedQueueOf, useCurrentTrack } from '../player/playerStore';
+import { usePlayerStore, useCurrentTrack } from '../player/playerStore';
 import { jumpTo, moveInQueue, removeFromQueue } from '../player/playerService';
 
 function QueueRow({ item, index, pos, colors }) {
@@ -32,7 +33,15 @@ export default function QueueScreen() {
   const colors = useTheme();
   const current = useCurrentTrack();
   const pos = usePlayerStore((s) => s.pos);
-  const upcoming = usePlayerStore((s) => orderedQueueOf(s).slice(s.pos + 1));
+  // Select the stable references and derive the list in useMemo — a selector
+  // that builds a fresh array each read makes zustand's useSyncExternalStore
+  // loop ("maximum update depth exceeded").
+  const queue = usePlayerStore((s) => s.queue);
+  const order = usePlayerStore((s) => s.order);
+  const upcoming = useMemo(
+    () => order.slice(pos + 1).map((i) => queue[i]).filter(Boolean),
+    [queue, order, pos]
+  );
 
   if (!current) {
     return (

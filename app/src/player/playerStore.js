@@ -27,7 +27,3 @@ export function currentTrackOf(state) {
 export function useCurrentTrack() {
   return usePlayerStore(currentTrackOf);
 }
-
-export function orderedQueueOf(state) {
-  return state.order.map((i) => state.queue[i]).filter(Boolean);
-}
