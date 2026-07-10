@@ -8,7 +8,6 @@
     "scheme": "instaplayer",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.instaplayer.app",
       "infoPlist": {
         "UIBackgroundModes": ["audio"]
@@ -17,9 +16,8 @@
     "android": {
       "package": "com.instaplayer.app",
       "adaptiveIcon": {
-        "backgroundColor": "#121212",
+        "backgroundColor": "#1DB954",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "permissions": ["android.permission.POST_NOTIFICATIONS"],

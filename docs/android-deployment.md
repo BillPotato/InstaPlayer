@@ -6,6 +6,39 @@ SDK on Windows, package id `com.instaplayer.app`.
 
 ---
 
+## Quick path — sideloadable test APK (no Google account, no payment)
+
+Build a real, installable APK in Expo's cloud and put it on your own phone to test before
+committing to the Play Store. Everything here is free.
+
+Prereqs done in-repo: custom artwork generated, `eas.json` present (`preview` profile builds an
+APK with `distribution: internal`).
+
+1. **Free Expo account** — sign up at https://expo.dev (email only).
+2. **Commit the pending changes** (EAS uploads your git working copy):
+   ```powershell
+   cd app
+   git add app.json eas.json assets
+   git commit -m "chore: app artwork + EAS build config"
+   ```
+3. **Log in and build** (uses `npx`, no global install):
+   ```powershell
+   npx eas-cli@latest login
+   npx eas-cli@latest build -p android --profile preview
+   ```
+   On the first run EAS will prompt to **create the project** (writes `extra.eas.projectId`
+   into `app.json`) and to **generate an Android keystore** — answer yes to both. The build
+   runs in the cloud (~10–20 min) and prints a URL/QR.
+4. **Install on the phone**: open the build URL on the phone and tap Install (allow "install
+   from unknown sources" once), or `adb install path\to\app.apk` over USB.
+5. **Point it at your server**: in the app, Settings → Server → your PC's LAN IP
+   (e.g. `http://192.168.1.11:8000`), same Wi-Fi, backend listening on `0.0.0.0`.
+
+This APK is a release build (no Metro, no PC tether) — it's the honest pre-store test. When
+you're happy, continue with the phases below to publish.
+
+---
+
 ## Phase 0 — Decisions to lock in first
 
 | Decision | Recommendation | Why it matters |
