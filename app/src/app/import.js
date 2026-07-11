@@ -165,6 +165,12 @@ export default function ImportScreen() {
         >
           <Text style={{ color: colors.onAccent, fontWeight: '600' }}>Open server settings</Text>
         </Pressable>
+        <Pressable
+          onPress={() => router.replace('/import-local')}
+          style={{ borderColor: colors.accent, borderWidth: 1, borderRadius: 24, paddingHorizontal: 24, paddingVertical: 12, marginTop: 12 }}
+        >
+          <Text style={{ color: colors.accent, fontWeight: '600' }}>Import from this device</Text>
+        </Pressable>
       </View>
     );
   }
@@ -227,6 +233,15 @@ export default function ImportScreen() {
               ) : null}
             </View>
           ) : null}
+
+          <Pressable
+            onPress={() => router.replace('/import-local')}
+            style={({ pressed }) => ({ alignItems: 'center', marginTop: 24, padding: 8, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '600' }}>
+              Import files from this device instead
+            </Text>
+          </Pressable>
         </>
       ) : (
         <>

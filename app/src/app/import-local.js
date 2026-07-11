@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useKeepAwake } from 'expo-keep-awake';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../theme/useTheme';
 import { useLocalImportStore } from '../stores/localImportStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { pickAndImportFiles, pickAndImportFolder } from '../localimport/localImportManager';
 
 function Bar({ fraction, colors }) {
@@ -49,6 +51,8 @@ function BigButton({ icon, label, sublabel, onPress, colors, disabled }) {
 export default function ImportLocalScreen() {
   useKeepAwake();
   const colors = useTheme();
+  const router = useRouter();
+  const serverUrl = useSettingsStore((s) => s.serverUrl);
   const st = useLocalImportStore();
   const [busy, setBusy] = useState(false);
 
@@ -122,6 +126,17 @@ export default function ImportLocalScreen() {
                 </View>
               ) : null}
             </View>
+          ) : null}
+
+          {serverUrl ? (
+            <Pressable
+              onPress={() => router.replace('/import')}
+              style={({ pressed }) => ({ alignItems: 'center', marginTop: 24, padding: 8, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '600' }}>
+                Add music from your server instead
+              </Text>
+            </Pressable>
           ) : null}
         </>
       ) : (

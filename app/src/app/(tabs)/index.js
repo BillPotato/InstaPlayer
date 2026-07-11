@@ -42,9 +42,11 @@ export default function HomeScreen() {
       {empty ? (
         <EmptyState
           title="Nothing here yet"
-          message="Add music from your server and it will show up here."
-          actionLabel="Add music"
+          message="Add music from your server, or import audio files already on this device."
+          actionLabel="Add from server"
           onAction={() => router.push('/import')}
+          secondaryActionLabel="Import from this device"
+          onSecondaryAction={() => router.push('/import-local')}
         />
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>

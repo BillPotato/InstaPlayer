@@ -41,6 +41,9 @@ export default function SetupScreen() {
       <Pressable onPress={async () => { await skipSetup(); done(); }} style={{ alignItems: 'center', marginTop: 24, padding: 8 }}>
         <Text style={{ color: colors.textDim, fontSize: 14 }}>Skip for now</Text>
       </Pressable>
+      <Text style={{ color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: 4, lineHeight: 17 }}>
+        No server? You can still import audio files already on this device from Library → +.
+      </Text>
     </ScrollView>
   );
 }

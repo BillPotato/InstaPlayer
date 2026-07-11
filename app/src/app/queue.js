@@ -6,7 +6,7 @@ import { TrackRow } from '../components/TrackRow';
 import { EmptyState } from '../components/EmptyState';
 import { useTheme } from '../theme/useTheme';
 import { usePlayerStore, useCurrentTrack } from '../player/playerStore';
-import { jumpTo, moveInQueue, removeFromQueue } from '../player/playerService';
+import { jumpTo, moveInQueue, removeFromQueue, clearUpcoming } from '../player/playerService';
 
 function QueueRow({ item, index, pos, colors }) {
   const drag = useReorderableDrag();
@@ -64,9 +64,14 @@ export default function QueueScreen() {
             </Text>
             <TrackRow track={current} onPress={() => {}} />
             {upcoming.length > 0 ? (
-              <Text style={{ color: colors.textDim, fontSize: 13, fontWeight: '700', paddingHorizontal: 16, paddingTop: 12 }}>
-                NEXT UP · long-press to reorder
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12 }}>
+                <Text style={{ color: colors.textDim, fontSize: 13, fontWeight: '700' }}>
+                  NEXT UP · long-press to reorder
+                </Text>
+                <Pressable onPress={clearUpcoming} hitSlop={8}>
+                  <Text style={{ color: colors.accent, fontSize: 13, fontWeight: '600' }}>Clear</Text>
+                </Pressable>
+              </View>
             ) : (
               <Text style={{ color: colors.textDim, fontSize: 14, padding: 16 }}>Nothing queued after this.</Text>
             )}

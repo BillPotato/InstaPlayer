@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View, ToastAndroid, Platform } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
@@ -8,10 +8,7 @@ import {
 } from '../db/playlistRepo';
 import { bumpLibrary } from '../stores/libraryStore';
 import { InputDialog } from './InputDialog';
-
-function notify(message) {
-  if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
-}
+import { notify } from '../utils/notify';
 
 // Bottom sheet for adding one or more tracks to a playlist.
 export function PlaylistPickerSheet({ visible, trackIds, onClose }) {

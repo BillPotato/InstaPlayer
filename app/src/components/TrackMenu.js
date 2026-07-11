@@ -6,6 +6,7 @@ import { PlaylistPickerSheet } from './PlaylistPickerSheet';
 import { enqueueNext, enqueueLast } from '../player/playerService';
 import { deleteTrack } from '../library/libraryActions';
 import { formatBytes } from '../utils/format';
+import { notify } from '../utils/notify';
 
 // Shared long-press menu for a track. Usage:
 //   const menu = useTrackMenu();
@@ -41,8 +42,8 @@ export function useTrackMenu({ extraItems } = {}) {
         items={
           track
             ? [
-                { key: 'next', label: 'Play next', icon: 'play-skip-forward-outline', onPress: () => enqueueNext(track) },
-                { key: 'queue', label: 'Add to queue', icon: 'list-outline', onPress: () => enqueueLast(track) },
+                { key: 'next', label: 'Play next', icon: 'play-skip-forward-outline', onPress: () => { enqueueNext(track); notify('Will play next'); } },
+                { key: 'queue', label: 'Add to queue', icon: 'list-outline', onPress: () => { enqueueLast(track); notify('Added to queue'); } },
                 { key: 'playlist', label: 'Add to playlist', icon: 'add-circle-outline', onPress: () => setPickerTrack(track) },
                 { key: 'album', label: 'Go to album', icon: 'disc-outline', onPress: () => router.push(`/library/album/${albumKey(track)}`) },
                 { key: 'artist', label: 'Go to artist', icon: 'person-outline', onPress: () => router.push(`/library/artist/${encodeURIComponent(track.artist)}`) },

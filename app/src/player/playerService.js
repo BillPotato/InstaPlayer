@@ -392,6 +392,13 @@ export function enqueueLast(tracks) {
   patch({ queue, order });
 }
 
+// Drop everything after the current track (the "Next up" list).
+export function clearUpcoming() {
+  const s = store();
+  if (s.pos < 0 || s.pos + 1 >= s.order.length) return;
+  patch({ order: s.order.slice(0, s.pos + 1) });
+}
+
 export function jumpTo(orderIndex) {
   const s = store();
   if (orderIndex < 0 || orderIndex >= s.order.length) return;
