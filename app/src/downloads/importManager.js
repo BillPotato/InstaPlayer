@@ -93,6 +93,8 @@ async function handleEvent(jobId, event) {
         total: event.total || 0,
         error: event.error ?? null,
       });
+      // The job may have been finalized/replaced during the await above.
+      if (!current || current.jobId !== jobId) return;
       if (['completed', 'failed', 'cancelled'].includes(event.status)) {
         current.terminalStatus = event.status;
         current.backendError = event.error || null;
@@ -188,7 +190,9 @@ function patchPull(n, fields) {
 }
 
 async function downloadOne(entry, row) {
-  const { jobId } = current;
+  // Capture identifiers up front: the download outlives many awaits and
+  // `current` must not be dereferenced after they resolve.
+  const { jobId, sourceUrl } = current;
   await jobRepo.setImportTrackState(jobId, entry.n, 'downloading');
   for (let attempt = row.attempts; attempt < MAX_ATTEMPTS; attempt += 1) {
     const trackId = randomId();
@@ -239,7 +243,7 @@ async function downloadOne(entry, row) {
         filePath: `music/${trackId}.flac`,
         artPath,
         lyrics: entry.lyrics,
-        sourceUrl: current.sourceUrl,
+        sourceUrl,
       });
       await jobRepo.setImportTrackState(jobId, entry.n, 'done', trackId);
       patchPull(entry.n, null);

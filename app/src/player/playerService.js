@@ -94,20 +94,27 @@ async function restorePersistedState() {
   } catch {
     return;
   }
-  const tracks = await tracksByIds(saved.ids || []);
+  const ids = Array.isArray(saved?.ids) ? saved.ids : null;
+  const order = Array.isArray(saved?.order) ? saved.order : null;
+  // order must be a valid permutation of [0, ids.length); reject anything
+  // malformed so corruption can never crash boot or misalign the queue.
+  if (!ids || !order || order.length !== ids.length) return;
+  if (!order.every((i) => Number.isInteger(i) && i >= 0 && i < ids.length)) return;
+  const tracks = await tracksByIds(ids);
   // Deleted tracks would shift every order index; only restore intact queues.
-  if (!tracks.length || tracks.length !== saved.ids.length) return;
+  if (tracks.length !== ids.length) return;
   patch({
     queue: tracks,
-    order: saved.order,
-    pos: Math.min(Math.max(0, saved.pos), saved.order.length - 1),
+    order,
+    pos: Math.min(Math.max(0, Number(saved.pos) || 0), order.length - 1),
     shuffle: !!saved.shuffle,
     repeat: ['off', 'all', 'one'].includes(saved.repeat) ? saved.repeat : 'off',
   });
   loadCurrent(false);
-  if (saved.currentTime > 0) {
-    seekTo(saved.currentTime);
-    patch({ currentTime: saved.currentTime });
+  const resumeAt = Number(saved.currentTime);
+  if (resumeAt > 0) {
+    seekTo(resumeAt);
+    patch({ currentTime: resumeAt });
   }
 }
 
