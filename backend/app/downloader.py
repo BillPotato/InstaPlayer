@@ -135,7 +135,11 @@ async def probe(settings: Settings) -> dict:
         except asyncio.TimeoutError:
             detail = f"Probe timed out after {int(settings.probe_timeout_seconds)}s."
             # The executor thread cannot be killed; clean up when it finishes.
-            future.add_done_callback(lambda f: (f.exception(), shutil.rmtree(tmp_dir, ignore_errors=True)))
+            # Bind the path as a default arg — tmp_dir is reassigned to None on
+            # the next line, and a plain closure would capture that instead.
+            future.add_done_callback(
+                lambda f, path=tmp_dir: (f.exception(), shutil.rmtree(path, ignore_errors=True))
+            )
             tmp_dir = None
         except SpotiFlacError as exc:
             detail = str(exc)
