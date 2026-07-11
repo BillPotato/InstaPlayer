@@ -26,8 +26,44 @@ def test_parses_total_and_current():
     assert {"current": "The Cassette — Nắng"} in updates
 
 
+def test_parses_track_header():
+    # New SpotiFLAC emits an authoritative per-track header carrying both the
+    # total ([N/M]) and the current track.
+    updates = _collect([
+        "Track [1/2] Bohemian Rhapsody — Queen (A Night at the Opera)",
+        "Track [2/2] Billie Jean — Michael Jackson (Thriller)",
+    ])
+    assert {"total": 2, "current": "Bohemian Rhapsody — Queen"} in updates
+    assert {"total": 2, "current": "Billie Jean — Michael Jackson"} in updates
+
+
+def test_track_header_survives_truncated_album():
+    # album[:32] can cut mid-text, leaving an unbalanced "(" in the line; the
+    # title and artist must still come through cleanly.
+    updates = _collect([
+        "Track [1/2] Bohemian Rhapsody — Queen (Bohemian Rhapsody (The Original ",
+    ])
+    assert {"total": 2, "current": "Bohemian Rhapsody — Queen"} in updates
+
+
+def test_track_header_keeps_parenthetical_title():
+    updates = _collect([
+        "Track [3/5] Song Title (Remastered) — The Artist (Some Album)",
+    ])
+    assert {"total": 5, "current": "Song Title (Remastered) — The Artist"} in updates
+
+
 def test_no_false_positives():
     assert _collect(["nothing interesting here", "downloading chunk 12"]) == []
+
+
+def test_tqdm_bar_is_not_a_header():
+    # The per-track tqdm bar ("Track: <name>  : 12%|…") must NOT be parsed as a
+    # header — only "Track [N/M]" is.
+    assert _collect([
+        "Track: Billie Jean       :   0%|          | 0.00/109M [00:",
+        "Progress:   0%|          | 0/2 [00:07<?, ?it/s]",
+    ]) == []
 
 
 def test_tee_forwards_and_parses():
@@ -46,6 +82,10 @@ def test_tee_forwards_and_parses():
 
 if __name__ == "__main__":
     test_parses_total_and_current()
+    test_parses_track_header()
+    test_track_header_survives_truncated_album()
+    test_track_header_keeps_parenthetical_title()
     test_no_false_positives()
+    test_tqdm_bar_is_not_a_header()
     test_tee_forwards_and_parses()
     print("progress parser tests passed")
