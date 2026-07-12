@@ -41,6 +41,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug token access to deploy repo
+        env:
+          TOKEN: ${{ secrets.BACKEND_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sS -o /tmp/repo.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${DEPLOY_REPO} > /tmp/status.txt
+          STATUS=$(cat /tmp/status.txt)
+          echo "GET /repos/${DEPLOY_REPO} -> HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ]; then
+            echo "Token cannot access deploy repo (or repo slug is wrong)."
+            cat /tmp/repo.json
+            exit 1
+          fi
+
       - name: Split backend/ and push to the deploy repo
         env:
           TOKEN: ${{ secrets.BACKEND_DEPLOY_TOKEN }}
