@@ -1,0 +1,65 @@
+name: Sync backend to deploy repo
+
+# Mirrors the backend/ subtree of this monorepo into a standalone repo whose
+# ROOT is the backend — so a container host (Zeabur, Railway, Fly, …) can build
+# the existing backend/Dockerfile with no "root directory" gymnastics.
+#
+# One-time setup:
+#   1. Create an empty GitHub repo for deployment (e.g. BillPotato/instaplayer-backend).
+#      Do NOT add a README/license — it must start empty so the first mirror is clean.
+#   2. Create a token that can write to it:
+#      - Fine-grained PAT scoped to ONLY the deploy repo, with
+#        Repository permissions → Contents: Read and write.
+#      - (Classic PAT with `repo` scope also works but is broader.)
+#   3. In THIS repo: Settings → Secrets and variables → Actions → New repository secret
+#        Name:  BACKEND_DEPLOY_TOKEN
+#        Value: the token
+#   4. Set DEPLOY_REPO below to "<owner>/<repo>" of the deploy repo.
+#   5. Point the Zeabur service at the deploy repo (root directory = /, clear any
+#      "docker compose" start command). The backend Dockerfile builds as-is.
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**']
+  workflow_dispatch: {}   # allow manual runs from the Actions tab
+
+env:
+  DEPLOY_REPO: BillPotato/instaplayer-backend   # <-- change to your deploy repo
+  SUBTREE_PREFIX: backend
+
+concurrency:
+  group: sync-backend
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history — subtree split needs it)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Split backend/ and push to the deploy repo
+        env:
+          TOKEN: ${{ secrets.BACKEND_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN}" ]; then
+            echo "BACKEND_DEPLOY_TOKEN not set — skipping (finish the one-time setup at the top of this file)."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Deterministically recompute a history containing only backend/,
+          # with backend/ as the tree root.
+          SPLIT_SHA=$(git subtree split --prefix="$SUBTREE_PREFIX" HEAD)
+          echo "Split commit: $SPLIT_SHA"
+
+          # Force-push it as the deploy repo's main. Safe because that repo is a
+          # generated mirror that nobody commits to directly.
+          git push --force \
+            "https://x-access-token:${TOKEN}@github.com/${DEPLOY_REPO}.git" \
+            "${SPLIT_SHA}:refs/heads/main"
