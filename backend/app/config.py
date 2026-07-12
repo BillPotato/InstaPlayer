@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     # you change both this and Spooty's FORMAT together.
     spooty_format: str = "flac"
 
+    # Track used by POST /downloader/probe to verify SpotiFLAC can actually
+    # download (its upstream resolver services break regularly). Any single
+    # Spotify track URL that exists on the configured services works.
+    probe_spotify_url: str = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"
+
+    # Hard cap on a probe run. One track normally lands well inside this.
+    probe_timeout_seconds: float = 240.0
+
+    # Run the deep probe automatically every N minutes so clients get an
+    # instant, recent answer instead of waiting for a live download.
+    # 0 disables the periodic probe. Note each probe downloads one track.
+    probe_interval_minutes: float = 60.0
+
     @property
     def jobs_dir(self) -> Path:
         # Temporary per-job storage: SpotiFLAC downloads here, the device pulls

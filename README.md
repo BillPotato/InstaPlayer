@@ -1,26 +1,25 @@
-# Music App — Offline FLAC Player
+# InstaPlayer — Offline FLAC Player
 
-A phone-based **offline music player** (Android-first, Flutter) paired with a **self-hosted
-backend**. You hand the backend a Spotify playlist/album URL; it resolves each track's ISRC,
-downloads the matching lossless FLAC from hi-fi sources via [SpotiFLAC](https://github.com/spotbye/SpotiFLAC),
-tags it, and fetches synced lyrics. The Flutter app browses that library, downloads tracks to
-the phone, and plays them **fully offline**.
-
-> See [the architecture plan](#architecture) and the build plan in
-> `C:\Users\Bill\.claude\plans\` for the full design.
+A phone-based **offline music player** (Android-first, React Native/Expo) paired with a
+**self-hosted backend**. You hand the backend a Spotify playlist/album URL; it resolves each
+track's ISRC, downloads the matching lossless FLAC from hi-fi sources via
+[SpotiFLAC](https://github.com/spotbye/SpotiFLAC), tags it, and fetches synced lyrics. The app
+pulls those files to the phone and plays them **fully offline** — the phone owns the entire
+library.
 
 ## Repository layout
 
 ```
 backend/   FastAPI service that wraps SpotiFLAC (Python 3.11, Dockerized)
-app/        Flutter mobile client (Android first)  — added in a later phase
+app/       React Native (Expo) mobile client — see app/README.md for setup
+docs/      Backend technical reference
 ```
 
 ## ⚠️ Legal / distribution note
 
 The backend downloads tracks from third-party hi-fi services via ISRC matching, which violates
 those services' Terms of Service. **Keep the download capability strictly on your own
-self-hosted backend and use it for personal use only.** The Flutter client itself is a neutral
+self-hosted backend and use it for personal use only.** The mobile client itself is a neutral
 offline media player and contains no downloaders — it connects to a backend URL that *you*
 supply.
 
@@ -45,11 +44,11 @@ curl -X POST http://localhost:8000/jobs \
 ## Architecture
 
 ```
-Flutter client  ──REST + WebSocket──►  Self-hosted backend (Docker)
-  • library browser                      • FastAPI + job queue
-  • just_audio playback                  • SpotiFLAC wrapper (ISRC → Tidal/Qobuz/Amazon)
-  • offline FLAC store (resumable)        • Go tagger + LRCLIB lyrics
-  • drift (SQLite) mirror                 • SQLite metadata + FLAC file store
+Expo/RN client  ──REST + WebSocket──►  Self-hosted backend (Docker)
+  • Spotify-style UI (Home/Search/Library)   • FastAPI + job queue
+  • expo-audio playback (ExoPlayer/AVPlayer) • SpotiFLAC wrapper (ISRC → Tidal/Qobuz/Amazon)
+  • offline FLAC store (expo-file-system)    • Go tagger + LRCLIB lyrics
+  • SQLite library mirror (expo-sqlite)      • transient job files, deleted after pull
 ```
 
 ## Backend configuration
@@ -68,6 +67,9 @@ Every variable is optional except `API_KEY`.
 | `DATA_DIR` | `./data` | Where job files and the SQLite DB live inside the container |
 | `SPOOTY_BASE_URL` | *(unset)* | Base URL of an optional [Spooty](#spooty-fallback) instance used as a fallback when SpotiFLAC returns zero tracks, e.g. `http://spooty:3000`. Leave unset to disable the fallback entirely |
 | `SPOOTY_FORMAT` | `flac` | File extension Spooty is configured to produce (its own `FORMAT` env var). Must stay `flac` — the backend only scans for `*.flac` files |
+| `PROBE_SPOTIFY_URL` | *(a well-known track)* | Track downloaded by `POST /downloader/probe` to verify SpotiFLAC works end-to-end |
+| `PROBE_TIMEOUT_SECONDS` | `240` | Hard cap on a probe run |
+| `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
 
 **Tip:** If downloads are consistently failing, the most common cause is that the third-party
 proxy APIs SpotiFLAC uses are temporarily down or rate-limited. Options:

@@ -60,6 +60,10 @@ class JobManager:
         for queue in list(self._subscribers.get(job_id, ())):
             queue.put_nowait(event)
 
+    def has_active_jobs(self) -> bool:
+        """True while any download task is still running."""
+        return any(not task.done() for task in self._tasks.values())
+
     # ---- cancellation ----------------------------------------------------
     def cancel_job(self, job_id: str) -> bool:
         """Request cancellation of a running job. Returns True if found."""
