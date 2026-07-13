@@ -78,24 +78,27 @@ After SpotiFLAC downloads a FLAC file, this file does two things:
    songs finish — song 0 appears first, then song 1, and so on, so your phone
    can start downloading before the whole playlist is ready.
 
-### `spotiflac_adapter.py` — running SpotiFLAC
+### `spotiflac_adapter.py` — running the SpotiFLAC engine
 
-SpotiFLAC is the tool that actually downloads songs from Tidal, Qobuz, etc.
-by matching Spotify track IDs to their ISRC codes. This file runs it and
-watches its output.
+The SpotiFLAC engine is what actually downloads songs from Tidal, Qobuz, and
+Amazon by matching Spotify track IDs to their ISRC codes. It's a small
+self-contained program (`spotiflac-dl`, built from Go source that lives in
+`backend/spotiflac-go/` and baked into the Docker image — not a pip package).
+This file launches it as a subprocess and watches its output.
 
-SpotiFLAC is a black box — it has no progress callback. So this file intercepts
-everything it prints to the terminal, line by line, and parses useful
-information out of it: "Found 12 tracks" becomes the total count; "Trying:
-Artist — Title" becomes the current track label shown on the progress bar.
+The engine is a black box — it has no progress callback. So this file reads
+everything it prints, line by line, and parses useful information out of it:
+a `Track [1/12] Title — Artist` line gives both the total (`12`) and the
+current track label shown on the progress bar. If the engine exits with an
+error, the last line of its output is surfaced as the failure reason.
 
 ### `jobs.py` — the engine that runs everything
 
 This is the core of the backend. When a download job starts, this file:
 
 1. Creates a database row for the job.
-2. Starts SpotiFLAC in a background thread (because SpotiFLAC blocks for
-   minutes, and running it directly would freeze the server).
+2. Starts the SpotiFLAC engine in a background thread (it blocks for minutes,
+   and running it directly would freeze the server).
 3. Simultaneously runs a watcher every second that checks if new song files
    have appeared on disk.
 4. When a new song is ready, updates the manifest and sends an instant message
@@ -120,7 +123,7 @@ This is the web server file. It defines all the URLs your phone can call:
 | `GET /jobs/{id}/files/{n}` | Download song number `n` |
 | `GET /jobs/{id}/art/{n}` | Download the album art for song `n` |
 | `WS /jobs/{id}/events` | A live connection that streams progress updates |
-| `GET /downloader/status` | Is the download engine (SpotiFLAC) healthy? Cheap: install check + version, configured sources, last job outcome, stored probe result |
+| `GET /downloader/status` | Is the download engine (SpotiFLAC) healthy? Cheap: engine-binary present + version, configured sources, last job outcome, stored probe result |
 | `POST /downloader/probe` | Deep check: downloads one sample track into a throwaway dir and reports ok/failure. Answers instantly from the stored result while fresh (kept warm by a periodic probe every `PROBE_INTERVAL_MINUTES`); `?force=true` always runs live. Live runs are rejected (409) while a job is active. See `PROBE_SPOTIFY_URL` / `PROBE_TIMEOUT_SECONDS` |
 
 It also runs two things at startup:
@@ -138,10 +141,10 @@ It also runs two things at startup:
 Phone:   "Download this Spotify playlist."
 Server:  Creates a job (ID = abc123), returns that ID to the phone.
 
-[Background — SpotiFLAC running in a thread]
-SpotiFLAC: "Found 10 tracks"
+[Background — the SpotiFLAC engine running in a thread]
+Engine:  "Track [1/10] ..."
   → server stores total=10
-SpotiFLAC: finishes downloading track 0
+Engine:  finishes downloading track 0
   → server reads its metadata, fetches art, adds it to manifest.json
   → server sends "file_ready n=0" to phone over WebSocket
 
@@ -152,7 +155,7 @@ Phone:   saves both files locally, song appears in the library
 
 [This repeats for tracks 1, 2, 3 ... as each one finishes]
 
-SpotiFLAC: all done
+Engine:  all done
 Server:  sends "status=completed" over WebSocket
 
 Phone:   receives "completed"

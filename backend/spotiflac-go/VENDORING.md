@@ -13,6 +13,7 @@ subprocess (replacing the lagging `SpotiFLAC` pip package).
 - **Build:** pure Go, `CGO_ENABLED=0` → static binary. taglib runs via wazero
   (WASM), so no C toolchain / libtag is needed. ffmpeg is invoked at runtime.
 
-To update to a newer upstream: re-copy `backend/` (minus the three GUI files),
-`go mod tidy`, rebuild, and bump the commit hash above. (A helper script lands
-in a later step.)
+To update to a newer upstream, run `scripts/update-spotiflac.sh` from the repo
+root: it re-copies `backend/` (minus the three GUI files), runs `go mod tidy`,
+and verifies the `CGO_ENABLED=0` build. Then bump the commit hash above to the
+value it prints and rebuild the backend image.
