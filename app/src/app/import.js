@@ -55,7 +55,10 @@ function DownloaderStatusCard({ colors }) {
   let icon = 'checkmark-circle';
   let color = colors.accent;
   let headline = 'Download engine ready';
-  let note = `Sources: ${status.services.join(', ')}${status.version ? ` · SpotiFLAC ${status.version}` : ''}`;
+  const versionNote = status.version
+    ? ` · SpotiFLAC ${status.version}${status.updateAvailable ? ` (v${status.latestVersion} available — redeploy to update)` : ''}`
+    : '';
+  let note = `Sources: ${status.services.join(', ')}${versionNote}`;
   if (!status.importable) {
     icon = 'close-circle';
     color = colors.danger;

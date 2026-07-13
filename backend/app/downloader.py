@@ -74,6 +74,39 @@ def installed_version() -> str | None:
         return None
 
 
+# Latest version on PyPI, cached — this is a "should you redeploy?" hint, not a
+# hot path. The actual upgrade happens at container start (docker-entrypoint.sh).
+_PYPI_TTL = 6 * 3600
+_pypi_cache: dict = {"version": None, "at": 0.0}
+
+
+def latest_pypi_version() -> str | None:
+    now = time.time()
+    if _pypi_cache["version"] and now - _pypi_cache["at"] < _PYPI_TTL:
+        return _pypi_cache["version"]
+    try:
+        import httpx
+
+        resp = httpx.get("https://pypi.org/pypi/SpotiFLAC/json", timeout=5.0)
+        resp.raise_for_status()
+        version = resp.json()["info"]["version"]
+        _pypi_cache.update(version=version, at=now)
+        return version
+    except Exception:
+        return _pypi_cache["version"]  # last known, or None
+
+
+def _update_available(installed: str | None, latest: str | None) -> bool:
+    if not installed or not latest:
+        return False
+    try:
+        from packaging.version import Version
+
+        return Version(latest) > Version(installed)
+    except Exception:
+        return installed != latest
+
+
 def _last_job_summary() -> dict | None:
     with SessionLocal() as session:
         job = session.scalars(select(Job).order_by(Job.updated_at.desc())).first()
@@ -89,10 +122,15 @@ def _last_job_summary() -> dict | None:
 async def status(settings: Settings, active_jobs: bool) -> dict:
     loop = asyncio.get_running_loop()
     importable, import_error = check_importable()  # find_spec only — fast
+    installed = installed_version()
+    # PyPI lookup is off-thread + cached; best-effort so status never blocks.
+    latest = await loop.run_in_executor(None, latest_pypi_version)
     return {
         "importable": importable,
         "importError": import_error,
-        "version": installed_version(),
+        "version": installed,
+        "latestVersion": latest,
+        "updateAvailable": _update_available(installed, latest),
         "services": list(settings.default_services),
         "quality": settings.quality,
         "activeJobs": active_jobs,

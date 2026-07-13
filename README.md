@@ -70,6 +70,7 @@ Every variable is optional except `API_KEY`.
 | `PROBE_SPOTIFY_URL` | *(a well-known track)* | Track downloaded by `POST /downloader/probe` to verify SpotiFLAC works end-to-end |
 | `PROBE_TIMEOUT_SECONDS` | `240` | Hard cap on a probe run |
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
+| `SPOTIFLAC_AUTO_UPGRADE` | `1` | On container start, `pip install --upgrade SpotiFLAC` before launching (SpotiFLAC breaks often; this keeps it current). Best-effort — falls back to the baked-in version if PyPI is unreachable. Set `0` for a reproducible build. `GET /downloader/status` also reports `latestVersion`/`updateAvailable` so you know when a restart is worthwhile |
 
 **Tip:** If downloads are consistently failing, the most common cause is that the third-party
 proxy APIs SpotiFLAC uses are temporarily down or rate-limited. Options:
