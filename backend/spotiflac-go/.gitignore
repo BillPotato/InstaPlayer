@@ -1,0 +1,4 @@
+# Built binaries (produced in the Docker Go stage or local `go build`)
+/spotiflac-dl
+/spotiflac-dl.exe
+*.exe
