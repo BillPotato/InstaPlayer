@@ -22,10 +22,12 @@ import (
 	"github.com/afkarxyz/SpotiFLAC/backend"
 )
 
-// version is reported by --version. The upstream commit is recorded so the
-// FastAPI /downloader/status card can surface which engine build is running;
-// keep it in sync with VENDORING.md when re-vendoring.
-const version = "spotiflac-dl (SpotiFLAC Go engine, upstream 3f755f5)"
+// version is reported by --version and surfaced on the FastAPI
+// /downloader/status card (rendered there as "SpotiFLAC <version>", so this
+// string deliberately omits the "SpotiFLAC" prefix). The upstream commit lets
+// that card show which engine build is running; keep it in sync with
+// VENDORING.md when re-vendoring.
+const version = "Go engine (upstream 3f755f5)"
 
 // filenameFormat "title-artist" is the upstream default: no `{` tokens, so the
 // downloaders emit "<Title> - <Artist>.flac". The embedded TITLE tag (always set

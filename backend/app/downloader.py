@@ -1,10 +1,11 @@
 """Availability checks for the SpotiFLAC download engine.
 
-SpotiFLAC depends on community-run resolver/proxy services that break
-regularly, and its failures only surface at runtime. Two levels of checking:
+The engine is the vendored ``spotiflac-dl`` Go binary. It depends on
+community-run resolver/proxy services that break regularly, and those failures
+only surface at runtime. Two levels of checking:
 
-- ``status()``  — cheap: is the package importable, what happened to the most
-  recent job, and the cached result of the last deep probe.
+- ``status()``  — cheap: is the engine binary present/runnable, what happened
+  to the most recent job, and the cached result of the last deep probe.
 - ``probe()``   — honest but expensive: actually downloads one known track
   (``PROBE_SPOTIFY_URL``) into a throwaway dir. This is the only reliable
   "can it download songs right now" signal.
@@ -12,8 +13,6 @@ regularly, and its failures only surface at runtime. Two levels of checking:
 from __future__ import annotations
 
 import asyncio
-import importlib.metadata
-import importlib.util
 import logging
 import shutil
 import tempfile
@@ -26,7 +25,13 @@ from sqlalchemy import select
 from .config import Settings
 from .db import SessionLocal
 from .models import Job
-from .spotiflac_adapter import SpotiFlacError, run_spotiflac
+from .spotiflac_adapter import (
+    BINARY_NAME,
+    SpotiFlacError,
+    binary_version,
+    resolve_binary,
+    run_spotiflac,
+)
 
 log = logging.getLogger(__name__)
 
@@ -49,62 +54,24 @@ def probe_is_fresh(settings: Settings) -> bool:
 
 
 def check_importable() -> tuple[bool, str | None]:
-    """Is the SpotiFLAC package installed?
+    """Is the ``spotiflac-dl`` engine binary available and runnable?
 
-    Deliberately uses ``find_spec`` and never executes package code:
-    importing SpotiFLAC contacts its cloud resolvers with long retries at
-    import time, which would hang this "cheap" check for minutes when they
-    are down. The probe is the check that actually runs the package (in a
-    worker thread, via ``run_spotiflac``'s own lazy import).
+    Kept under the historical name so callers (``main.py``, ``status``) are
+    unchanged. Cheap and network-free: resolves the binary on PATH and runs
+    ``--version``. (The real download run happens in a worker thread via
+    ``run_spotiflac``.)
     """
-    try:
-        spec = importlib.util.find_spec("SpotiFLAC")
-    except Exception as exc:  # pragma: no cover - malformed install
-        return False, str(exc)
-    if spec is None:
-        return False, "SpotiFLAC package is not installed"
+    binary = resolve_binary()
+    if binary is None:
+        return False, f"{BINARY_NAME} binary not found (set SPOTIFLAC_DL_BIN or add it to PATH)"
+    if binary_version() is None:
+        return False, f"{BINARY_NAME} found at {binary} but did not run"
     return True, None
 
 
 def installed_version() -> str | None:
-    """Installed SpotiFLAC version from dist metadata (no code executed)."""
-    try:
-        return importlib.metadata.version("SpotiFLAC")
-    except Exception:
-        return None
-
-
-# Latest version on PyPI, cached — this is a "should you redeploy?" hint, not a
-# hot path. The actual upgrade happens at container start (docker-entrypoint.sh).
-_PYPI_TTL = 6 * 3600
-_pypi_cache: dict = {"version": None, "at": 0.0}
-
-
-def latest_pypi_version() -> str | None:
-    now = time.time()
-    if _pypi_cache["version"] and now - _pypi_cache["at"] < _PYPI_TTL:
-        return _pypi_cache["version"]
-    try:
-        import httpx
-
-        resp = httpx.get("https://pypi.org/pypi/SpotiFLAC/json", timeout=5.0)
-        resp.raise_for_status()
-        version = resp.json()["info"]["version"]
-        _pypi_cache.update(version=version, at=now)
-        return version
-    except Exception:
-        return _pypi_cache["version"]  # last known, or None
-
-
-def _update_available(installed: str | None, latest: str | None) -> bool:
-    if not installed or not latest:
-        return False
-    try:
-        from packaging.version import Version
-
-        return Version(latest) > Version(installed)
-    except Exception:
-        return installed != latest
+    """Version reported by the engine binary (``spotiflac-dl --version``)."""
+    return binary_version()
 
 
 def _last_job_summary() -> dict | None:
@@ -121,16 +88,17 @@ def _last_job_summary() -> dict | None:
 
 async def status(settings: Settings, active_jobs: bool) -> dict:
     loop = asyncio.get_running_loop()
-    importable, import_error = check_importable()  # find_spec only — fast
+    importable, import_error = check_importable()  # binary presence + --version
     installed = installed_version()
-    # PyPI lookup is off-thread + cached; best-effort so status never blocks.
-    latest = await loop.run_in_executor(None, latest_pypi_version)
+    # No package registry to compare against now — the engine is a vendored
+    # binary, kept current with scripts/update-spotiflac.sh. Keep the keys for
+    # frontend compatibility; there's simply never an "update available" hint.
     return {
         "importable": importable,
         "importError": import_error,
         "version": installed,
-        "latestVersion": latest,
-        "updateAvailable": _update_available(installed, latest),
+        "latestVersion": None,
+        "updateAvailable": False,
         "services": list(settings.default_services),
         "quality": settings.quality,
         "activeJobs": active_jobs,
