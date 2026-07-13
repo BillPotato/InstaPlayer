@@ -1,0 +1,4 @@
+# Shell scripts must be LF-only: a CRLF line ending makes the Linux shell fail
+# (e.g. the Docker entrypoint would die with a `\r`-mangled command). Scoped to
+# *.sh so JS/other files keep whatever your editor uses.
+*.sh text eol=lf
