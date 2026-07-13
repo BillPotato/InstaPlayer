@@ -1,32 +1,30 @@
-"""Thin adapter around the SpotiFLAC module.
+"""Thin adapter around the vendored SpotiFLAC Go engine (``spotiflac-dl``).
 
-SpotiFLAC runs as a side effect: given a Spotify URL it downloads FLAC files
-(with metadata + lyrics embedded) into ``output_dir`` and returns nothing useful.
-We therefore treat it as a black box here and recover all metadata afterwards by
-scanning the produced files (see ``ingest.py``).
+The engine is a self-contained static binary built from the upstream SpotiFLAC
+``backend`` package (see ``backend/spotiflac-go/``). We invoke it as a
+subprocess: given a Spotify URL it downloads title-tagged FLAC files (metadata +
+cover + lyrics embedded) into ``output_dir`` and prints progress. We treat it as
+a black box and recover all metadata afterwards by scanning the produced files
+(see ``ingest.py``) — the filesystem contract is unchanged from the old pip
+package, so ``jobs.py`` and ``ingest.py`` need no changes.
 
-For progress we parse the text SpotiFLAC prints/logs while running (it has no
-callback API). The authoritative signal is the per-track header SpotiFLAC writes
-to stderr via ``tqdm.write`` for each track, e.g.::
+Progress comes from the per-track header the binary writes to stdout::
 
-    Track [1/2] Bohemian Rhapsody — Queen (A Night at the Opera)
+    Track [1/2] Bohemian Rhapsody — Queen
 
-which carries both the total (``[N/M]``) and the current track. We still honour
-the older "Found N track(s)" (total) and "Trying: <artist> — <title>" (current)
-lines as fallbacks for older SpotiFLAC versions. Note the "Trying:" lines come
-from ``logging`` whose handler is bound to the real stderr and so bypass our
-``redirect_stderr`` tee — the ``print``/``tqdm.write`` header does not, which is
-why the header is the reliable source. Both stdout and stderr are teed so we
-catch either form. This is best-effort — if the format changes, progress simply
-stays coarse, never crashes.
+which carries both the total (``[N/M]``) and the current track. Parsing is
+best-effort — if the format changes, progress simply stays coarse, never
+crashes. The child's stderr is merged into stdout so provider-failure lines and
+the final error also flow through here and into the server log.
 """
 from __future__ import annotations
 
 import contextlib
-import io
 import logging
+import os
 import re
-import sys
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
@@ -34,19 +32,56 @@ log = logging.getLogger(__name__)
 
 ProgressCb = Callable[[dict[str, Any]], None]
 
-_FOUND_RE = re.compile(r"Found\s+(\d+)\s+track", re.IGNORECASE)
-_TRYING_RE = re.compile(r"Trying:\s*(.+?)\s*$")
-# Per-track header: "Track [N/M] <title> — <artists> (<album>)". Anchored on
-# "Track [" so the tqdm progress bars ("Track: <name>  : 12%|…") never match.
+#: Name of the engine binary on PATH. Overridable via ``SPOTIFLAC_DL_BIN``.
+BINARY_NAME = "spotiflac-dl"
+
+# Per-track header: "Track [N/M] <title> — <artists>". Anchored on "Track [".
 _TRACK_HDR_RE = re.compile(r"Track\s*\[(\d+)\s*/\s*(\d+)\]\s*(.+?)\s*$")
 
 
+class SpotiFlacError(RuntimeError):
+    pass
+
+
+def resolve_binary() -> str | None:
+    """Absolute path to the ``spotiflac-dl`` binary, or ``None`` if unavailable.
+
+    Honours the ``SPOTIFLAC_DL_BIN`` env override (must point at an executable
+    file); otherwise searches ``PATH``.
+    """
+    override = os.environ.get("SPOTIFLAC_DL_BIN")
+    if override:
+        path = Path(override)
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+        return None
+    return shutil.which(BINARY_NAME)
+
+
+def binary_version() -> str | None:
+    """Version string reported by ``spotiflac-dl --version``, or ``None``."""
+    binary = resolve_binary()
+    if binary is None:
+        return None
+    try:
+        out = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        return None
+    version = (out.stdout or out.stderr or "").strip()
+    return version or None
+
+
 def _clean_current(tail: str) -> str:
-    """Reduce a header tail ``<title> — <artists> (<album>)`` to
-    ``<title> — <artists>``. Splits on the em dash so a title or artist that
-    itself contains ``(...)`` survives, then drops the album, which is always the
-    trailing parenthetical. Album truncation can leave an unbalanced ``(`` in the
-    line, so we cut on the first ``" ("`` after the dash rather than match parens.
+    """Reduce a header tail ``<title> — <artists>`` (optionally with a trailing
+    ``(<album>)``) to ``<title> — <artists>``. Splits on the em dash so a title
+    or artist containing ``(...)`` survives, then drops any trailing album.
     """
     tail = tail.strip()
     if " — " in tail:
@@ -56,45 +91,11 @@ def _clean_current(tail: str) -> str:
     return tail
 
 
-class SpotiFlacError(RuntimeError):
-    pass
-
-
-class _ProgressTee(io.TextIOBase):
-    """Wraps a real text stream: forwards writes through, parses progress lines."""
-
-    def __init__(self, original: Any, on_line: Callable[[str], None]) -> None:
-        self._original = original
-        self._on_line = on_line
-        self._buf = ""
-
-    def write(self, s: str) -> int:  # type: ignore[override]
-        if self._original is not None:
-            self._original.write(s)
-        self._buf += s
-        while "\n" in self._buf:
-            line, self._buf = self._buf.split("\n", 1)
-            with contextlib.suppress(Exception):
-                self._on_line(line)
-        return len(s)
-
-    def flush(self) -> None:
-        if self._original is not None:
-            self._original.flush()
-
-
 def _parse_line(line: str, cb: ProgressCb) -> None:
     header = _TRACK_HDR_RE.search(line)
     if header:
         # Authoritative: total from [N/M] and the current track in one update.
         cb({"total": int(header.group(2)), "current": _clean_current(header.group(3))})
-        return
-    found = _FOUND_RE.search(line)
-    if found:
-        cb({"total": int(found.group(1))})
-    trying = _TRYING_RE.search(line)
-    if trying:
-        cb({"current": trying.group(1).strip()})
 
 
 def run_spotiflac(
@@ -108,54 +109,59 @@ def run_spotiflac(
 ) -> None:
     """Download everything behind ``url`` into ``output_dir`` (blocking).
 
-    Raises SpotiFlacError on import or runtime failure so callers can mark the
-    job failed with a clear message.
+    Raises ``SpotiFlacError`` when the binary is missing or the run fails so
+    callers can mark the job failed / the probe unhealthy with a clear message.
     """
-    try:
-        from SpotiFLAC import SpotiFLAC  # imported lazily; heavy + optional at dev time
-    except Exception as exc:  # pragma: no cover - depends on runtime env
-        raise SpotiFlacError(f"SpotiFLAC is not importable: {exc}") from exc
+    del track_max_retries  # retries are owned by the Go engine's own fallback
+
+    binary = resolve_binary()
+    if binary is None:
+        raise SpotiFlacError(
+            f"{BINARY_NAME} binary not found (set SPOTIFLAC_DL_BIN or add it to PATH)"
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _download(include_retries: bool = True) -> None:
-        kwargs: dict[str, Any] = dict(
-            url=url,
-            output_dir=str(output_dir),
-            services=services,
-            quality=quality,
-            allow_fallback=True,
-            embed_lyrics=True,
-            enrich_metadata=True,
-            qobuz_token=qobuz_token,
-            log_level=logging.INFO,
-        )
-        if include_retries:
-            kwargs["track_max_retries"] = track_max_retries
-        SpotiFLAC(**kwargs)
-
-    def _run_download() -> None:
-        try:
-            _download(include_retries=True)
-        except TypeError as te:
-            # Older SpotiFLAC versions don't accept track_max_retries.
-            if "track_max_retries" in str(te):
-                log.warning(
-                    "SpotiFLAC: track_max_retries not supported in this version, retrying without it"
-                )
-                _download(include_retries=False)
-            else:
-                raise
+    cmd = [
+        binary,
+        "--url", url,
+        "--out", str(output_dir),
+        "--services", ",".join(services),
+        "--quality", quality,
+    ]
+    if qobuz_token:
+        cmd += ["--qobuz-token", qobuz_token]
 
     try:
-        if progress_cb is None:
-            _run_download()
-        else:
-            on_line = lambda line: _parse_line(line, progress_cb)  # noqa: E731
-            # Tee both streams: "Found N" is printed to stdout, "Trying:" is
-            # logged to stderr. Single-user backend → global redirect is fine.
-            with contextlib.redirect_stdout(_ProgressTee(sys.stdout, on_line)), \
-                    contextlib.redirect_stderr(_ProgressTee(sys.stderr, on_line)):
-                _run_download()
-    except Exception as exc:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge so failures/errors flow through too
+            text=True,
+            bufsize=1,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as exc:
+        raise SpotiFlacError(f"failed to launch {BINARY_NAME}: {exc}") from exc
+
+    tail: list[str] = []
+    assert proc.stdout is not None
+    try:
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            log.info("spotiflac-dl: %s", line)
+            tail.append(line)
+            if len(tail) > 20:
+                del tail[0]
+            if progress_cb is not None:
+                with contextlib.suppress(Exception):
+                    _parse_line(line, progress_cb)
+        returncode = proc.wait()
+    except Exception as exc:  # pragma: no cover - defensive (I/O on the pipe)
+        proc.kill()
         raise SpotiFlacError(f"SpotiFLAC download failed: {exc}") from exc
+
+    if returncode != 0:
+        detail = tail[-1] if tail else f"exit code {returncode}"
+        raise SpotiFlacError(f"SpotiFLAC download failed (exit {returncode}): {detail}")
