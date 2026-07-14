@@ -61,7 +61,15 @@ def _as_int(value: str | None) -> int | None:
 def scan_flacs(directory: Path) -> list[Path]:
     if not directory.exists():
         return []
-    return sorted(p for p in directory.rglob("*.flac") if p.is_file())
+    # Skip hidden dirs (e.g. the engine's ".staging"): a file only becomes
+    # visible here once the engine has fully finished it and moved it into place,
+    # so its size can't change after we record it in the manifest.
+    return sorted(
+        p
+        for p in directory.rglob("*.flac")
+        if p.is_file()
+        and not any(part.startswith(".") for part in p.relative_to(directory).parts)
+    )
 
 
 def parse_flac(path: Path) -> FlacMeta:

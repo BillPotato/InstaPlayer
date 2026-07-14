@@ -89,6 +89,19 @@ func main() {
 		fatal("failed to create output dir: %v", err)
 	}
 
+	// Stage each download in a hidden subdir and only move the finished FLAC into
+	// --out once ALL post-processing (metadata, lyrics) is done. The backend
+	// watches --out and freezes a file's size into its (append-only) manifest the
+	// moment it appears fully tagged; if we post-process in place afterwards the
+	// size changes and the device's size check fails. Publishing atomically means
+	// the backend only ever sees a complete, immutable file. Its scanner ignores
+	// dot-prefixed dirs, so staged files stay invisible until published.
+	stageDir := filepath.Join(*out, ".staging")
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		fatal("failed to create staging dir: %v", err)
+	}
+	defer os.RemoveAll(stageDir)
+
 	svcOrder := parseServices(*services)
 	if len(svcOrder) == 0 {
 		fatal("no valid services in --services=%q", *services)
@@ -111,7 +124,7 @@ func main() {
 		// Progress line parsed by the FastAPI adapter (spotiflac_adapter.py).
 		fmt.Printf("Track [%d/%d] %s — %s\n", i+1, total, t.Name, t.Artists)
 
-		if err := downloadOne(t, *out, *quality, *qobuzToken, svcOrder, *allowFallback, *embedLyrics, *separator); err != nil {
+		if err := downloadOne(t, stageDir, *out, *quality, *qobuzToken, svcOrder, *allowFallback, *embedLyrics, *separator); err != nil {
 			fmt.Fprintf(os.Stderr, "  failed: %v\n", err)
 			continue
 		}
@@ -197,8 +210,10 @@ func fromAlbumTracks(list []backend.AlbumTrackMetadata) []trackInfo {
 
 // downloadOne tries each service in priority order and returns nil on the first
 // success. Every provider path embeds full metadata (title/artist/album/cover)
-// into the FLAC, which is the contract ingest depends on.
-func downloadOne(t trackInfo, outDir, quality, qobuzToken string, services []string, allowFallback, embedLyrics bool, separator string) error {
+// into the FLAC, which is the contract ingest depends on. Downloads land in
+// stageDir; the finished file is moved into outDir (the job dir) only once all
+// post-processing is done, so the backend never sees a mutating file.
+func downloadOne(t trackInfo, stageDir, outDir, quality, qobuzToken string, services []string, allowFallback, embedLyrics bool, separator string) error {
 	spotifyURL := ""
 	if t.SpotifyID != "" {
 		spotifyURL = "https://open.spotify.com/track/" + t.SpotifyID
@@ -229,7 +244,7 @@ func downloadOne(t trackInfo, outDir, quality, qobuzToken string, services []str
 				d.SetCustomAPIURL(strings.TrimRight(strings.TrimSpace(qobuzToken), "/"))
 			}
 			filename, err = d.DownloadTrackWithISRC(
-				isrc, outDir, q, filenameFormat, false, t.TrackNumber,
+				isrc, stageDir, q, filenameFormat, false, t.TrackNumber,
 				t.Name, t.Artists, t.AlbumName, t.AlbumArtist, t.ReleaseDate, false,
 				t.CoverURL, false, t.TrackNumber, t.DiscNumber, t.TotalTracks, t.TotalDiscs,
 				t.Copyright, t.Publisher, "", separator, spotifyURL, allowFallback, false, false, false)
@@ -237,7 +252,7 @@ func downloadOne(t trackInfo, outDir, quality, qobuzToken string, services []str
 		case "tidal":
 			d := backend.NewTidalDownloader("")
 			filename, err = d.Download(
-				t.SpotifyID, outDir, q, filenameFormat, false, t.TrackNumber,
+				t.SpotifyID, stageDir, q, filenameFormat, false, t.TrackNumber,
 				t.Name, t.Artists, t.AlbumName, t.AlbumArtist, t.ReleaseDate, false,
 				t.CoverURL, false, t.TrackNumber, t.DiscNumber, t.TotalTracks, t.TotalDiscs,
 				t.Copyright, t.Publisher, "", separator, "", spotifyURL, allowFallback, false, false, false)
@@ -245,7 +260,7 @@ func downloadOne(t trackInfo, outDir, quality, qobuzToken string, services []str
 		case "amazon":
 			d := backend.NewAmazonDownloader()
 			filename, err = d.DownloadBySpotifyID(
-				t.SpotifyID, outDir, q, filenameFormat, "", "", false, t.TrackNumber,
+				t.SpotifyID, stageDir, q, filenameFormat, "", "", false, t.TrackNumber,
 				t.Name, t.Artists, t.AlbumName, t.AlbumArtist, t.ReleaseDate, t.CoverURL,
 				t.TrackNumber, t.DiscNumber, t.TotalTracks, false, t.TotalDiscs,
 				t.Copyright, t.Publisher, "", separator, "", spotifyURL, false, false, false)
@@ -276,7 +291,15 @@ func downloadOne(t trackInfo, outDir, quality, qobuzToken string, services []str
 			}
 		}
 
-		fmt.Printf("  saved via %s: %s\n", svc, filepath.Base(filename))
+		// Publish only now that the file is complete: atomically move it out of
+		// staging into the job dir the backend watches.
+		published, perr := publish(filename, outDir)
+		if perr != nil {
+			lastErr = fmt.Errorf("%s: publish failed: %w", svc, perr)
+			fmt.Fprintf(os.Stderr, "  %s publish failed: %v\n", svc, perr)
+			continue
+		}
+		fmt.Printf("  saved via %s: %s\n", svc, filepath.Base(published))
 		return nil
 	}
 
@@ -284,6 +307,18 @@ func downloadOne(t trackInfo, outDir, quality, qobuzToken string, services []str
 		lastErr = errors.New("no services attempted")
 	}
 	return lastErr
+}
+
+// publish atomically moves a finished file out of staging into outDir (same
+// filesystem → os.Rename is atomic). Returns the final path. Any stale file of
+// the same name is removed first so the move can't fail on a duplicate title.
+func publish(src, outDir string) (string, error) {
+	dst := filepath.Join(outDir, filepath.Base(src))
+	_ = os.Remove(dst)
+	if err := os.Rename(src, dst); err != nil {
+		return "", err
+	}
+	return dst, nil
 }
 
 // embedTrackLyrics best-effort fetches synced lyrics and writes them into the
