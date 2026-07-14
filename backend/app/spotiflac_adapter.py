@@ -14,21 +14,21 @@ Progress comes from the per-track header the binary writes to stdout::
 
 which carries both the total (``[N/M]``) and the current track. Parsing is
 best-effort — if the format changes, progress simply stays coarse, never
-crashes. The child's stderr is merged into stdout so provider-failure lines and
-the final error also flow through here and into the server log.
+crashes. The child's stderr is merged into stdout, and every line is echoed to
+this process's stdout so the engine's output (progress, provider failures, the
+final error) is visible in the server terminal — the app configures no logging
+handlers, so routing it through ``logging`` at INFO would be swallowed.
 """
 from __future__ import annotations
 
 import contextlib
-import logging
 import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Callable
-
-log = logging.getLogger(__name__)
 
 ProgressCb = Callable[[dict[str, Any]], None]
 
@@ -150,7 +150,7 @@ def run_spotiflac(
     try:
         for raw in proc.stdout:
             line = raw.rstrip("\n")
-            log.info("spotiflac-dl: %s", line)
+            print(f"[spotiflac-dl] {line}", file=sys.stdout, flush=True)
             tail.append(line)
             if len(tail) > 20:
                 del tail[0]
