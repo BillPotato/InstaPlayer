@@ -61,7 +61,7 @@ Every variable is optional except `API_KEY`.
 | `API_KEY` | `change-me-in-.env` | Bearer token the phone must send with every request — **change this** |
 | `DEFAULT_SERVICES` | `qobuz,tidal,amazon` | Comma-separated source order for the engine. Only `qobuz`/`tidal`/`amazon` are download providers (deezer is metadata/art only upstream — no downloader). Remove a name to skip it (e.g. `DEFAULT_SERVICES=qobuz,amazon` to skip Tidal when its proxies are down) |
 | `QUALITY` | `LOSSLESS` | Quality profile: `LOSSLESS` (16-bit) or `HI_RES` (24-bit). The engine maps this onto each provider's own quality code |
-| `TRACK_MAX_RETRIES` | `1` | Currently a no-op — the Go engine owns its own retry / cross-service fallback. Kept for config/API compatibility |
+| `TRACK_MAX_RETRIES` | `6` | How many times the engine retries a community-endpoint request on transient errors (429/502/504) before giving up, with backoff between tries (the `waiting Ns before retry (i/N)` lines). `0` = one attempt, no retries — lower it to fail faster when the community servers are flaky |
 | `QOBUZ_TOKEN` | *(unset)* | Optional custom Qobuz API base URL (`https://…`) forwarded to the engine. Leave unset to use the built-in community endpoint |
 | `JOB_RETENTION_HOURS` | `6` | How long a finished job's files are kept on the server before auto-deletion |
 | `DATA_DIR` | `./data` | Where job files and the SQLite DB live inside the container |

@@ -112,8 +112,6 @@ def run_spotiflac(
     Raises ``SpotiFlacError`` when the binary is missing or the run fails so
     callers can mark the job failed / the probe unhealthy with a clear message.
     """
-    del track_max_retries  # retries are owned by the Go engine's own fallback
-
     binary = resolve_binary()
     if binary is None:
         raise SpotiFlacError(
@@ -128,6 +126,7 @@ def run_spotiflac(
         "--out", str(output_dir),
         "--services", ",".join(services),
         "--quality", quality,
+        "--max-retries", str(max(0, track_max_retries)),
     ]
     if qobuz_token:
         cmd += ["--qobuz-token", qobuz_token]

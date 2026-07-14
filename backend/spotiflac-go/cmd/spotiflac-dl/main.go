@@ -62,6 +62,7 @@ func main() {
 		quality       = flag.String("quality", "LOSSLESS", "quality profile: LOSSLESS (16-bit) or HI_RES (24-bit)")
 		qobuzToken    = flag.String("qobuz-token", "", "optional custom Qobuz API base URL (https://...)")
 		allowFallback = flag.Bool("allow-fallback", true, "allow each provider to fall back to its community source")
+		maxRetries    = flag.Int("max-retries", -1, "community-endpoint retries on transient errors (429/502/504); -1 keeps the engine default")
 		embedLyrics   = flag.Bool("embed-lyrics", true, "fetch and embed synced lyrics when available")
 		separator     = flag.String("separator", ", ", "multi-artist separator for tags")
 		timeoutSec    = flag.Int("timeout", 300, "metadata expansion timeout, seconds")
@@ -78,6 +79,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error: --url and --out are required")
 		flag.Usage()
 		os.Exit(2)
+	}
+
+	if *maxRetries >= 0 {
+		backend.SetCommunityRateLimitMaxRetries(*maxRetries)
 	}
 
 	if err := os.MkdirAll(*out, 0o755); err != nil {

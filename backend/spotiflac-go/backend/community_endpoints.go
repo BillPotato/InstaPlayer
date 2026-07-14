@@ -107,7 +107,17 @@ func decryptCommunityURL(nonce, ciphertext, tag []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-const communityRateLimitMaxRetries = 6
+var communityRateLimitMaxRetries = 6
+
+// SetCommunityRateLimitMaxRetries overrides how many times a community-endpoint
+// request retries on transient errors (429/502/504) before giving up. 0 means a
+// single attempt with no retries; negative values are clamped to 0.
+func SetCommunityRateLimitMaxRetries(n int) {
+	if n < 0 {
+		n = 0
+	}
+	communityRateLimitMaxRetries = n
+}
 
 const communityRateLimitFallbackWait = 30 * time.Second
 

@@ -30,10 +30,12 @@ class Settings(BaseSettings):
     # --qobuz-token; leave unset to use the built-in community endpoint.
     qobuz_token: str | None = None
 
-    # Retained for call-signature stability; the Go engine owns its own retry /
-    # cross-service fallback, so this value is currently a no-op. Override via
-    # TRACK_MAX_RETRIES.
-    track_max_retries: int = 1
+    # How many times the engine retries a community-endpoint request on transient
+    # errors (429/502/504) before giving up, with backoff between tries — the
+    # "waiting Ns before retry (i/N)" lines. 0 = a single attempt, no retries.
+    # Lower it to fail faster when the community servers are flaky; 6 is the
+    # engine's own default. Override via TRACK_MAX_RETRIES.
+    track_max_retries: int = 6
 
     # How long a finished job's files are kept for the device to fetch before
     # the reaper deletes them. The backend stores nothing permanently.
