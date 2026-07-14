@@ -21,34 +21,35 @@ import { formatBytes } from '../utils/format';
 const LIGHT_GREEN = '#22C55E';
 const LIGHT_RED = '#EF4444';
 
-function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
+// Single source of truth for the /status summary: the tiny light colour, a few
+// plain words, and whether it's OK to start a download. `ready` is true only for
+// the green state, so a red light both shows and blocks.
+function serverStatus(status, statusState, colors) {
   const checking = statusState === 'loading' && !status;
-
-  // One tiny light + a few plain words summarise the /status response.
-  let light = colors.textDim;
-  let label = 'Checking server…';
-  if (statusState === 'error' || (!checking && !status)) {
-    light = LIGHT_RED;
-    label = 'Can’t reach server';
-  } else if (status) {
-    const probeAgeMin = status.lastProbe?.at
-      ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
-      : null;
-    const probeFresh = probeAgeMin != null && probeAgeMin <= 90;
-    if (!status.importable) {
-      light = LIGHT_RED;
-      label = 'Downloads unavailable';
-    } else if (probeFresh && status.lastProbe && !status.lastProbe.ok) {
-      light = LIGHT_RED;
-      label = 'Downloads failing';
-    } else if (status.lastJob?.status === 'failed') {
-      light = LIGHT_RED;
-      label = 'Last download failed';
-    } else {
-      light = LIGHT_GREEN;
-      label = 'Server ready';
-    }
+  if (checking) {
+    return { light: colors.textDim, label: 'Checking server…', ready: false, checking: true };
   }
+  if (statusState === 'error' || !status) {
+    return { light: LIGHT_RED, label: 'Can’t reach server', ready: false, checking: false };
+  }
+  const probeAgeMin = status.lastProbe?.at
+    ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
+    : null;
+  const probeFresh = probeAgeMin != null && probeAgeMin <= 90;
+  if (!status.importable) {
+    return { light: LIGHT_RED, label: 'Downloads unavailable', ready: false, checking: false };
+  }
+  if (probeFresh && status.lastProbe && !status.lastProbe.ok) {
+    return { light: LIGHT_RED, label: 'Downloads failing', ready: false, checking: false };
+  }
+  if (status.lastJob?.status === 'failed') {
+    return { light: LIGHT_RED, label: 'Last download failed', ready: false, checking: false };
+  }
+  return { light: LIGHT_GREEN, label: 'Server ready', ready: true, checking: false };
+}
+
+function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
+  const { light, label, checking } = serverStatus(status, statusState, colors);
 
   return (
     <View
@@ -113,8 +114,9 @@ export default function ImportScreen() {
     if (serverUrl) refreshStatus();
   }, [serverUrl, refreshStatus]);
 
-  // OK to import only when the server responded and its engine is available.
-  const backendOk = statusState === 'loaded' && !!status?.importable;
+  // OK to import only when the status light is green (server responded, engine
+  // available, and downloads aren't currently failing). Any red state blocks.
+  const backendOk = serverStatus(status, statusState, colors).ready;
 
   const begin = async () => {
     const link = url.trim();
