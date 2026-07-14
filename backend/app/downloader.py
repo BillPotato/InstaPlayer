@@ -171,6 +171,11 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
         "activeJobs": active_jobs,
         "lastJob": await loop.run_in_executor(None, _last_job_summary),
         "lastProbe": _last_probe,
+        "nextProbeAt": (
+            datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()
+            if _next_probe_at > 0
+            else None
+        ),
         "probing": _probe_lock.locked(),
     }
 

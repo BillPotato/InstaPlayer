@@ -48,27 +48,46 @@ function serverStatus(status, statusState, colors) {
   return { light: LIGHT_GREEN, label: 'Server ready', ready: true, checking: false };
 }
 
+// "Next check in ~X min" from the server's scheduled next probe (nextProbeAt).
+// Null when there's no schedule (periodic probe off / hasn't run yet).
+function nextProbeLabel(status) {
+  const at = status?.nextProbeAt ? Date.parse(status.nextProbeAt) : NaN;
+  if (Number.isNaN(at)) return null;
+  const ms = at - Date.now();
+  if (ms <= 0) return 'Next check due now';
+  const min = Math.round(ms / 60000);
+  return min < 1 ? 'Next check in under a minute' : `Next check in ~${min} min`;
+}
+
 function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
   const { light, label, checking } = serverStatus(status, statusState, colors);
+  const nextLabel = checking ? null : nextProbeLabel(status);
 
   return (
     <View
       style={{
         backgroundColor: colors.surface, borderRadius: 10, paddingVertical: 12,
-        paddingHorizontal: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 14, marginBottom: 16,
       }}
     >
-      <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: light }} />
-      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600', marginLeft: 10, flex: 1 }}>
-        {label}
-      </Text>
-      {checking ? (
-        <ActivityIndicator size="small" color={colors.textDim} />
-      ) : (
-        <Pressable onPress={onRetry} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}>
-          <Ionicons name="refresh" size={16} color={colors.textDim} />
-        </Pressable>
-      )}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: light }} />
+        <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600', marginLeft: 10, flex: 1 }}>
+          {label}
+        </Text>
+        {checking ? (
+          <ActivityIndicator size="small" color={colors.textDim} />
+        ) : (
+          <Pressable onPress={onRetry} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}>
+            <Ionicons name="refresh" size={16} color={colors.textDim} />
+          </Pressable>
+        )}
+      </View>
+      {nextLabel ? (
+        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4, marginLeft: 21 }}>
+          {nextLabel}
+        </Text>
+      ) : null}
     </View>
   );
 }
