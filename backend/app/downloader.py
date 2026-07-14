@@ -13,6 +13,7 @@ only surface at runtime. Two levels of checking:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -35,11 +36,58 @@ from .spotiflac_adapter import (
 
 log = logging.getLogger(__name__)
 
-# Last deep-probe result, kept in memory (the backend has a single process).
-# A restart loses it; the periodic loop repopulates it within a minute.
+# Last deep-probe result. Kept in memory (single process) AND mirrored to disk,
+# so a backend restart within the freshness window reuses it instead of probing
+# again (each probe downloads a real track — slow and rate-limit-hungry). The
+# epoch is wall-clock (time.time), so the freshness check survives restarts.
 _last_probe: dict | None = None
 _last_probe_epoch: float = 0.0
 _probe_lock = asyncio.Lock()
+
+# The probe cache is mirrored here, inside DATA_DIR (next to the job store).
+_PROBE_CACHE_NAME = "last_probe.json"
+
+
+def _probe_cache_path(settings: Settings) -> Path:
+    return settings.data_dir / _PROBE_CACHE_NAME
+
+
+def _persist_probe(settings: Settings) -> None:
+    """Best-effort mirror of the current probe result to disk."""
+    if _last_probe is None:
+        return
+    try:
+        path = _probe_cache_path(settings)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"probe": _last_probe, "epoch": _last_probe_epoch}),
+            encoding="utf-8",
+        )
+    except Exception:  # pragma: no cover - the cache is advisory
+        log.debug("Could not persist probe cache", exc_info=True)
+
+
+def load_persisted_probe(settings: Settings) -> None:
+    """Load the probe cache from disk into memory at startup, so a fresh cached
+    result suppresses an immediate re-probe after a restart. No-op if the file
+    is missing/unreadable or a result is already in memory."""
+    global _last_probe, _last_probe_epoch
+    if _last_probe is not None:
+        return
+    try:
+        data = json.loads(_probe_cache_path(settings).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    except Exception:  # pragma: no cover - corrupt/partial cache
+        log.debug("Could not read probe cache", exc_info=True)
+        return
+    probe = data.get("probe")
+    epoch = data.get("epoch")
+    if isinstance(probe, dict) and isinstance(epoch, (int, float)):
+        _last_probe = probe
+        _last_probe_epoch = float(epoch)
+        age_min = max(0, int((time.time() - _last_probe_epoch) / 60))
+        log.info("Loaded cached probe from disk (ok=%s, %d min old)", probe.get("ok"), age_min)
 
 
 def _freshness_window_seconds(settings: Settings) -> float:
@@ -163,6 +211,7 @@ async def probe(settings: Settings) -> dict:
             "elapsedSeconds": round(time.monotonic() - started, 1),
         }
         _last_probe_epoch = time.time()
+        _persist_probe(settings)  # survive restarts within the freshness window
         log.info("Downloader probe finished: ok=%s detail=%s", ok, detail)
         return _last_probe
 

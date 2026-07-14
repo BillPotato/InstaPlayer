@@ -56,6 +56,9 @@ async def lifespan(app: FastAPI):  # noqa: ANN001
     init_db()
     _fail_orphaned_jobs()
     manager = get_job_manager()
+    # Restore the last probe result from disk so a restart within the freshness
+    # window doesn't trigger another (slow, rate-limit-hungry) probe.
+    downloader.load_persisted_probe(get_settings())
     reaper = asyncio.create_task(manager.reaper())
     prober = asyncio.create_task(
         downloader.periodic_probe_loop(get_settings(), manager.has_active_jobs)
