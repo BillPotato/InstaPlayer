@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { TrackArt } from '../../../components/TrackArt';
 import { EmptyState } from '../../../components/EmptyState';
 import { useTheme } from '../../../theme/useTheme';
 import { useLibraryStore } from '../../../stores/libraryStore';
+import { useLibraryReload } from '../../../library/useLibraryReload';
 import { albums as loadAlbums } from '../../../db/trackRepo';
 
 export default function AlbumsScreen() {
@@ -14,7 +15,7 @@ export default function AlbumsScreen() {
   const tick = useLibraryStore((s) => s.tick);
   const [albums, setAlbums] = useState([]);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       loadAlbums().then((a) => alive && setAlbums(a));

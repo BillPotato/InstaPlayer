@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { TrackArt } from '../../../../components/TrackArt';
 import { TrackRow } from '../../../../components/TrackRow';
 import { useTrackMenu } from '../../../../components/TrackMenu';
 import { PlayShuffleBar } from '../../../../components/PlayShuffleBar';
 import { useTheme } from '../../../../theme/useTheme';
 import { useLibraryStore } from '../../../../stores/libraryStore';
+import { useLibraryReload } from '../../../../library/useLibraryReload';
 import { artistTracks } from '../../../../db/trackRepo';
 import { playContext } from '../../../../player/playerService';
 import { trackCountLabel } from '../../../../utils/format';
@@ -21,7 +22,7 @@ export default function ArtistScreen() {
 
   const artist = useMemo(() => decodeURIComponent(String(name || '')), [name]);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       navigation.setOptions({ title: artist });

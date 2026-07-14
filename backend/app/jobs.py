@@ -89,9 +89,15 @@ class JobManager:
         self._cancel_timers[job_id] = asyncio.create_task(_delayed())
 
     # ---- job lifecycle ---------------------------------------------------
-    async def submit(self, spotify_url: str, preferred_source: str | None) -> str:
+    async def submit(
+        self, spotify_url: str, preferred_source: str | None, quality: str | None = None
+    ) -> str:
         with SessionLocal() as session:
-            job = Job(spotify_url=spotify_url, preferred_source=preferred_source)
+            job = Job(
+                spotify_url=spotify_url,
+                preferred_source=preferred_source,
+                quality=quality,
+            )
             session.add(job)
             session.commit()
             job_id = job.id
@@ -179,6 +185,7 @@ class JobManager:
             job = session.get(Job, job_id)
             spotify_url = job.spotify_url
             services = self._services(job.preferred_source)
+            quality = job.quality or self.settings.quality
 
         self._set_status(job_id, status="running")
         progress: dict[str, Any] = {"total": None, "current": None}
@@ -200,7 +207,7 @@ class JobManager:
                     spotify_url,
                     job_dir,
                     services,
-                    self.settings.quality,
+                    quality,
                     self.settings.qobuz_token,
                     self.settings.track_max_retries,
                     on_progress,

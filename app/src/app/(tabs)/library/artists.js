@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { TrackArt } from '../../../components/TrackArt';
 import { EmptyState } from '../../../components/EmptyState';
 import { useTheme } from '../../../theme/useTheme';
 import { useLibraryStore } from '../../../stores/libraryStore';
+import { useLibraryReload } from '../../../library/useLibraryReload';
 import { artists as loadArtists } from '../../../db/trackRepo';
 import { trackCountLabel } from '../../../utils/format';
 
@@ -15,7 +16,7 @@ export default function ArtistsScreen() {
   const tick = useLibraryStore((s) => s.tick);
   const [artists, setArtists] = useState([]);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       loadArtists().then((a) => alive && setArtists(a));

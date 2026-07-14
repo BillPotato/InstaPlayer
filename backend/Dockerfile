@@ -1,19 +1,36 @@
-# SpotiFLAC targets CPython 3.11 and ships a native Go tagger; build on a full
-# (non-slim) image so the bundled binary's shared libs are present.
-FROM python:3.11-bullseye
+# syntax=docker/dockerfile:1
+
+# --- Stage 1: build the SpotiFLAC Go engine (vendored in spotiflac-go/) ---
+# CGO is off, so this yields a fully static binary — taglib runs via wazero
+# (pure-Go WASM), no C toolchain or shared libs needed at build or runtime.
+FROM golang:1.26-bookworm AS engine
+WORKDIR /build
+COPY spotiflac-go/go.mod spotiflac-go/go.sum ./
+RUN go mod download
+COPY spotiflac-go/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o /out/spotiflac-dl ./cmd/spotiflac-dl
+
+# --- Stage 2: the FastAPI backend + ffmpeg + the static engine binary ---
+# The engine is static, so slim is fine (no need for the old full image that
+# hosted the pip package's native libs). ffmpeg is invoked at runtime by the
+# engine for muxing/resample.
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /srv
 
-# ffmpeg is commonly needed by audio tooling for muxing/transcode fallbacks.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+# Drop the engine binary onto PATH; the adapter resolves it via shutil.which.
+COPY --from=engine /out/spotiflac-dl /usr/local/bin/spotiflac-dl
 
 COPY app ./app
 

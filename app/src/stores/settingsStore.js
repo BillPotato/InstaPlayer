@@ -20,14 +20,16 @@ export const useSettingsStore = create((set) => ({
   setupDone: false,
   themeMode: 'system', // 'system' | 'dark' | 'light'
   accent: DEFAULT_ACCENT,
+  quality: 'LOSSLESS', // 'LOSSLESS' (16-bit) | 'HI_RES' (24-bit)
 
   hydrate: async () => {
-    const [serverUrl, apiKey, setupDone, themeMode, accent] = await Promise.all([
+    const [serverUrl, apiKey, setupDone, themeMode, accent, quality] = await Promise.all([
       SecureStore.getItemAsync(KEY_SERVER_URL),
       SecureStore.getItemAsync(KEY_API_KEY),
       getSetting('setup_done', '0'),
       getSetting('theme_mode', 'system'),
       getSetting('accent', DEFAULT_ACCENT),
+      getSetting('quality', 'LOSSLESS'),
     ]);
     set({
       hydrated: true,
@@ -36,6 +38,7 @@ export const useSettingsStore = create((set) => ({
       setupDone: setupDone === '1',
       themeMode,
       accent,
+      quality: quality === 'HI_RES' ? 'HI_RES' : 'LOSSLESS',
     });
   },
 
@@ -61,6 +64,12 @@ export const useSettingsStore = create((set) => ({
   setAccent: async (accent) => {
     await setSetting('accent', accent);
     set({ accent });
+  },
+
+  setQuality: async (quality) => {
+    const q = quality === 'HI_RES' ? 'HI_RES' : 'LOSSLESS';
+    await setSetting('quality', q);
+    set({ quality: q });
   },
 }));
 

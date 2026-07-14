@@ -16,21 +16,26 @@ class Settings(BaseSettings):
     # Where FLAC files, album art and the SQLite DB live.
     data_dir: Path = Path("./data")
 
-    # Source priority handed to SpotiFLAC. First available wins.
-    # Tidal is last: its proxy network is frequently down and wastes 3-4 min
-    # per track when unreachable. Override via DEFAULT_SERVICES in .env.
-    default_services: list[str] = ["deezer", "amazon", "qobuz", "tidal"]
+    # Source priority handed to the engine. First that succeeds wins; each also
+    # falls back to its community source internally. Only qobuz/tidal/amazon are
+    # download providers upstream (deezer is metadata/art only — no downloader),
+    # so it's dropped from this list. Override via DEFAULT_SERVICES in .env.
+    default_services: list[str] = ["qobuz", "tidal", "amazon"]
 
-    # SpotiFLAC quality string ("LOSSLESS", "HI_RES", ...).
+    # Quality profile: "LOSSLESS" (16-bit) or "HI_RES" (24-bit). The engine maps
+    # this onto each provider's own quality code.
     quality: str = "LOSSLESS"
 
-    # Optional Qobuz token to unlock hi-res via SpotiFLAC.
+    # Optional custom Qobuz API base URL (https://...) passed to the engine as
+    # --qobuz-token; leave unset to use the built-in community endpoint.
     qobuz_token: str | None = None
 
-    # Per-track download retries before giving up (transient source failures).
-    # 1 = one retry (2 total attempts). Higher values cause more zarz.moe 429s
-    # when the shared resolver is rate-limited. Override via TRACK_MAX_RETRIES.
-    track_max_retries: int = 1
+    # How many times the engine retries a community-endpoint request on transient
+    # errors (429/502/504) before giving up, with backoff between tries — the
+    # "waiting Ns before retry (i/N)" lines. 0 = a single attempt, no retries.
+    # Lower it to fail faster when the community servers are flaky; 6 is the
+    # engine's own default. Override via TRACK_MAX_RETRIES.
+    track_max_retries: int = 6
 
     # How long a finished job's files are kept for the device to fetch before
     # the reaper deletes them. The backend stores nothing permanently.

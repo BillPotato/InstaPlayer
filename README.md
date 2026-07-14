@@ -10,7 +10,7 @@ library.
 ## Repository layout
 
 ```
-backend/   FastAPI service that wraps SpotiFLAC (Python 3.11, Dockerized)
+backend/   FastAPI service (Python 3.11) driving the vendored SpotiFLAC Go engine, Dockerized
 app/       React Native (Expo) mobile client — see app/README.md for setup
 docs/      Backend technical reference
 ```
@@ -59,10 +59,10 @@ Every variable is optional except `API_KEY`.
 | Variable | Default | What it does |
 |---|---|---|
 | `API_KEY` | `change-me-in-.env` | Bearer token the phone must send with every request — **change this** |
-| `DEFAULT_SERVICES` | `deezer,amazon,qobuz,tidal` | Comma-separated source order for SpotiFLAC. Remove a name to skip it entirely (e.g. `DEFAULT_SERVICES=deezer,amazon,qobuz` to skip Tidal when its proxies are all down) |
-| `QUALITY` | `LOSSLESS` | SpotiFLAC quality tier: `LOSSLESS`, `HIGH`, or `LOW` |
-| `TRACK_MAX_RETRIES` | `1` | Retries per track (0 = one attempt only, 1 = one retry, …). Higher values can help with transient errors but worsen rate-limit exhaustion on shared resolvers |
-| `QOBUZ_TOKEN` | *(unset)* | Qobuz account token. When set, SpotiFLAC uses authenticated Qobuz — **no proxy required, most reliable source** |
+| `DEFAULT_SERVICES` | `qobuz,tidal,amazon` | Comma-separated source order for the engine. Only `qobuz`/`tidal`/`amazon` are download providers (deezer is metadata/art only upstream — no downloader). Remove a name to skip it (e.g. `DEFAULT_SERVICES=qobuz,amazon` to skip Tidal when its proxies are down) |
+| `QUALITY` | `LOSSLESS` | Quality profile: `LOSSLESS` (16-bit) or `HI_RES` (24-bit). The engine maps this onto each provider's own quality code |
+| `TRACK_MAX_RETRIES` | `6` | How many times the engine retries a community-endpoint request on transient errors (429/502/504) before giving up, with backoff between tries (the `waiting Ns before retry (i/N)` lines). `0` = one attempt, no retries — lower it to fail faster when the community servers are flaky |
+| `QOBUZ_TOKEN` | *(unset)* | Optional custom Qobuz API base URL (`https://…`) forwarded to the engine. Leave unset to use the built-in community endpoint |
 | `JOB_RETENTION_HOURS` | `6` | How long a finished job's files are kept on the server before auto-deletion |
 | `DATA_DIR` | `./data` | Where job files and the SQLite DB live inside the container |
 | `SPOOTY_BASE_URL` | *(unset)* | Base URL of an optional [Spooty](#spooty-fallback) instance used as a fallback when SpotiFLAC returns zero tracks, e.g. `http://spooty:3000`. Leave unset to disable the fallback entirely |
@@ -70,11 +70,16 @@ Every variable is optional except `API_KEY`.
 | `PROBE_SPOTIFY_URL` | *(a well-known track)* | Track downloaded by `POST /downloader/probe` to verify SpotiFLAC works end-to-end |
 | `PROBE_TIMEOUT_SECONDS` | `240` | Hard cap on a probe run |
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
+| `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` engine binary. Unset = resolve it from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
+
+The engine is the vendored **SpotiFLAC Go binary** (`backend/spotiflac-go/`), built from
+source into the image — not a pip package. To pull a newer upstream, run
+`scripts/update-spotiflac.sh` and rebuild the image; `GET /downloader/status` reports the
+engine's `version`.
 
 **Tip:** If downloads are consistently failing, the most common cause is that the third-party
-proxy APIs SpotiFLAC uses are temporarily down or rate-limited. Options:
-- Add a `QOBUZ_TOKEN` (Qobuz account) for a proxy-free download path
-- Set `DEFAULT_SERVICES=deezer,amazon,qobuz` to skip Tidal entirely when its proxies are dead
+proxy APIs the engine uses are temporarily down or rate-limited. Options:
+- Set `DEFAULT_SERVICES=qobuz,amazon` to skip Tidal entirely when its proxies are dead
 - Try again later — the public proxy infrastructure is community-maintained and sometimes goes down
 - Set up the [Spooty fallback](#spooty-fallback) below so jobs still complete (at lower quality)
   when SpotiFLAC can't get anything

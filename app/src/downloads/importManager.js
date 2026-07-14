@@ -37,14 +37,14 @@ export function isImporting() {
   return current != null;
 }
 
-export async function startImport(sourceUrl, preferredSource) {
+export async function startImport(sourceUrl, preferredSource, quality) {
   if (current) throw new Error('An import is already running');
   ensureDirs();
   useImportStore.getState().reset();
   patchImport({ phase: 'creating', sourceUrl });
   let job;
   try {
-    job = await jobsApi.createJob(sourceUrl, preferredSource);
+    job = await jobsApi.createJob(sourceUrl, preferredSource, quality);
   } catch (err) {
     patchImport({ phase: 'failed', error: err.message });
     throw err;

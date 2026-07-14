@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { TrackArt } from '../../../../components/TrackArt';
 import { TrackRow } from '../../../../components/TrackRow';
 import { useTrackMenu } from '../../../../components/TrackMenu';
 import { PlayShuffleBar } from '../../../../components/PlayShuffleBar';
 import { useTheme } from '../../../../theme/useTheme';
 import { useLibraryStore } from '../../../../stores/libraryStore';
+import { useLibraryReload } from '../../../../library/useLibraryReload';
 import { albumTracks } from '../../../../db/trackRepo';
 import { playContext } from '../../../../player/playerService';
 import { formatMs, trackCountLabel } from '../../../../utils/format';
@@ -27,7 +28,7 @@ export default function AlbumScreen() {
       : { albumArtist: '', album: decoded };
   }, [key]);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       navigation.setOptions({ title: album });

@@ -56,6 +56,9 @@ async def lifespan(app: FastAPI):  # noqa: ANN001
     init_db()
     _fail_orphaned_jobs()
     manager = get_job_manager()
+    # Restore the last probe result from disk so a restart within the freshness
+    # window doesn't trigger another (slow, rate-limit-hungry) probe.
+    downloader.load_persisted_probe(get_settings())
     reaper = asyncio.create_task(manager.reaper())
     prober = asyncio.create_task(
         downloader.periodic_probe_loop(get_settings(), manager.has_active_jobs)
@@ -127,7 +130,7 @@ async def create_job(
     manager: JobManager = Depends(get_job_manager),
     session: Session = Depends(get_session),
 ) -> Job:
-    job_id = await manager.submit(payload.spotifyUrl, payload.preferredSource)
+    job_id = await manager.submit(payload.spotifyUrl, payload.preferredSource, payload.quality)
     job = session.scalar(select(Job).where(Job.id == job_id))
     if job is None:
         raise HTTPException(500, detail="Job was created but could not be retrieved")
