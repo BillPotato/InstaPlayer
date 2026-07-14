@@ -16,83 +16,58 @@ import { formatBytes } from '../utils/format';
 // response passed down by the screen. There is no separate connection/probe
 // test; the probe result shown here is the one the backend refreshes on its own
 // schedule and reports in /status.
+// Status light colours: green = ready, yellow = works but flaky, red = down.
+const LIGHT_GREEN = '#22C55E';
+const LIGHT_YELLOW = '#E5A50A';
+const LIGHT_RED = '#EF4444';
+
 function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
-  if (statusState === 'loading' && !status) {
-    return (
-      <View style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
-        <ActivityIndicator size="small" color={colors.accent} />
-        <Text style={{ color: colors.textDim, fontSize: 13, marginLeft: 10 }}>Checking server…</Text>
-      </View>
-    );
-  }
+  const checking = statusState === 'loading' && !status;
 
-  // Reachability/auth failure — the request to /status itself didn't succeed.
-  if (statusState === 'error' || !status) {
-    return (
-      <View style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 14, marginBottom: 16 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Ionicons name="cloud-offline" size={20} color={colors.danger} />
-          <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14, marginLeft: 8, flex: 1 }}>
-            Can’t reach the server
-          </Text>
-          <Pressable onPress={onRetry} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}>
-            <Ionicons name="refresh" size={16} color={colors.accent} />
-          </Pressable>
-        </View>
-        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
-          Check the server address and API key in settings. Importing stays disabled until the
-          server responds.
-        </Text>
-      </View>
-    );
-  }
-
-  const probeAgeMin = status.lastProbe?.at
-    ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
-    : null;
-  const probeStale = probeAgeMin == null || probeAgeMin > 90;
-  let icon = 'checkmark-circle';
-  let color = colors.accent;
-  let headline = 'Download engine ready';
-  const versionNote = status.version
-    ? ` · SpotiFLAC ${status.version}${status.updateAvailable ? ` (v${status.latestVersion} available — redeploy to update)` : ''}`
-    : '';
-  let note = `Sources: ${status.services.join(', ')}${versionNote}`;
-  if (!status.importable) {
-    icon = 'close-circle';
-    color = colors.danger;
-    headline = 'Download engine unavailable on server';
-    note = status.importError || 'SpotiFLAC could not be loaded.';
-  } else if (status.lastProbe && !status.lastProbe.ok && !probeStale) {
-    icon = 'warning';
-    color = colors.danger;
-    headline = 'Downloads may fail right now';
-    note = status.lastProbe.detail || 'The last download test failed.';
-  } else if (status.lastJob?.status === 'failed') {
-    icon = 'warning';
-    color = '#E5A50A';
-    headline = 'Last server download failed';
-    note = status.lastJob.error || 'The most recent job failed.';
+  // One tiny light + a few plain words summarise the /status response.
+  let light = colors.textDim;
+  let label = 'Checking server…';
+  if (statusState === 'error' || (!checking && !status)) {
+    light = LIGHT_RED;
+    label = 'Can’t reach server';
+  } else if (status) {
+    const probeAgeMin = status.lastProbe?.at
+      ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
+      : null;
+    const probeFresh = probeAgeMin != null && probeAgeMin <= 90;
+    if (!status.importable) {
+      light = LIGHT_RED;
+      label = 'Downloads unavailable';
+    } else if (probeFresh && status.lastProbe && !status.lastProbe.ok) {
+      light = LIGHT_YELLOW;
+      label = 'Some download issues';
+    } else if (status.lastJob?.status === 'failed') {
+      light = LIGHT_YELLOW;
+      label = 'Last download failed';
+    } else {
+      light = LIGHT_GREEN;
+      label = 'Server ready';
+    }
   }
 
   return (
-    <View style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 14, marginBottom: 16 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Ionicons name={icon} size={20} color={color} />
-        <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14, marginLeft: 8, flex: 1 }}>
-          {headline}
-        </Text>
+    <View
+      style={{
+        backgroundColor: colors.surface, borderRadius: 10, paddingVertical: 12,
+        paddingHorizontal: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center',
+      }}
+    >
+      <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: light }} />
+      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600', marginLeft: 10, flex: 1 }}>
+        {label}
+      </Text>
+      {checking ? (
+        <ActivityIndicator size="small" color={colors.textDim} />
+      ) : (
         <Pressable onPress={onRetry} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}>
           <Ionicons name="refresh" size={16} color={colors.textDim} />
         </Pressable>
-      </View>
-      <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6, lineHeight: 17 }}>{note}</Text>
-      {status.lastProbe?.ok && !probeStale ? (
-        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
-          Download check passed{probeAgeMin != null ? ` ${probeAgeMin} min ago` : ''} (
-          {Math.round(status.lastProbe.elapsedSeconds)}s).
-        </Text>
-      ) : null}
+      )}
     </View>
   );
 }
