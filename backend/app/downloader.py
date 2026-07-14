@@ -38,11 +38,22 @@ log = logging.getLogger(__name__)
 
 # Last deep-probe result. Kept in memory (single process) AND mirrored to disk,
 # so a backend restart within the freshness window reuses it instead of probing
-# again (each probe downloads a real track — slow and rate-limit-hungry). The
-# epoch is wall-clock (time.time), so the freshness check survives restarts.
+# again (each probe downloads a real track — slow and rate-limit-hungry).
+#
+# `_next_probe_at` (wall-clock epoch) is when the next probe is due. Normally
+# that's one interval out; but when a probe fails because a community endpoint is
+# on cooldown (503 "back in ~Ns"), we push it to exactly when the cooldown
+# expires — re-probing sooner would just 503 again. Wall-clock, so it survives
+# restarts.
 _last_probe: dict | None = None
 _last_probe_epoch: float = 0.0
+_next_probe_at: float = 0.0
 _probe_lock = asyncio.Lock()
+
+# Small grace after a cooldown before retrying (server clock skew / rounding),
+# and a sanity cap so a bogus cooldown can't wedge the prober for hours.
+_COOLDOWN_BUFFER_SECONDS = 30
+_COOLDOWN_MAX_SECONDS = 3 * 3600
 
 # The probe cache is mirrored here, inside DATA_DIR (next to the job store).
 _PROBE_CACHE_NAME = "last_probe.json"
@@ -60,7 +71,7 @@ def _persist_probe(settings: Settings) -> None:
         path = _probe_cache_path(settings)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps({"probe": _last_probe, "epoch": _last_probe_epoch}),
+            json.dumps({"probe": _last_probe, "epoch": _last_probe_epoch, "nextAt": _next_probe_at}),
             encoding="utf-8",
         )
     except Exception:  # pragma: no cover - the cache is advisory
@@ -69,9 +80,9 @@ def _persist_probe(settings: Settings) -> None:
 
 def load_persisted_probe(settings: Settings) -> None:
     """Load the probe cache from disk into memory at startup, so a fresh cached
-    result suppresses an immediate re-probe after a restart. No-op if the file
-    is missing/unreadable or a result is already in memory."""
-    global _last_probe, _last_probe_epoch
+    result (or an active cooldown) suppresses an immediate re-probe after a
+    restart. No-op if the file is missing/unreadable or a result is in memory."""
+    global _last_probe, _last_probe_epoch, _next_probe_at
     if _last_probe is not None:
         return
     try:
@@ -86,6 +97,12 @@ def load_persisted_probe(settings: Settings) -> None:
     if isinstance(probe, dict) and isinstance(epoch, (int, float)):
         _last_probe = probe
         _last_probe_epoch = float(epoch)
+        next_at = data.get("nextAt")
+        _next_probe_at = (
+            float(next_at)
+            if isinstance(next_at, (int, float))
+            else _last_probe_epoch + _freshness_window_seconds(settings)  # older cache
+        )
         age_min = max(0, int((time.time() - _last_probe_epoch) / 60))
         log.info("Loaded cached probe from disk (ok=%s, %d min old)", probe.get("ok"), age_min)
 
@@ -98,7 +115,9 @@ def _freshness_window_seconds(settings: Settings) -> float:
 
 
 def probe_is_fresh(settings: Settings) -> bool:
-    return _last_probe is not None and (time.time() - _last_probe_epoch) < _freshness_window_seconds(settings)
+    # "Fresh" = a result exists and the next probe isn't due yet. During a
+    # cooldown that window stretches to the cooldown's expiry.
+    return _last_probe is not None and time.time() < _next_probe_at
 
 
 def check_importable() -> tuple[bool, str | None]:
@@ -169,6 +188,7 @@ async def probe(settings: Settings) -> dict:
         tmp_dir = Path(tempfile.mkdtemp(prefix="probe-", dir=settings.data_dir))
         ok = False
         detail: str | None = None
+        cooldown: int | None = None
         future = None
         try:
             future = loop.run_in_executor(
@@ -197,22 +217,34 @@ async def probe(settings: Settings) -> dict:
             tmp_dir = None
         except SpotiFlacError as exc:
             detail = str(exc)
+            cooldown = getattr(exc, "cooldown_seconds", None)
         except Exception as exc:  # pragma: no cover - defensive
             detail = f"Unexpected probe error: {exc}"
         finally:
             if tmp_dir is not None:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        global _last_probe_epoch
+        global _last_probe_epoch, _next_probe_at
+        now = time.time()
+        if not ok and cooldown:
+            # On cooldown: don't re-probe until it expires (+ a small grace).
+            wait = min(int(cooldown), _COOLDOWN_MAX_SECONDS) + _COOLDOWN_BUFFER_SECONDS
+            _next_probe_at = now + wait
+            detail = f"On cooldown — retrying in ~{max(1, round(wait / 60))} min. {detail or ''}".strip()
+        else:
+            _next_probe_at = now + _freshness_window_seconds(settings)
         _last_probe = {
             "ok": ok,
             "detail": detail,
             "at": datetime.now(timezone.utc).isoformat(),
             "elapsedSeconds": round(time.monotonic() - started, 1),
         }
-        _last_probe_epoch = time.time()
-        _persist_probe(settings)  # survive restarts within the freshness window
-        log.info("Downloader probe finished: ok=%s detail=%s", ok, detail)
+        _last_probe_epoch = now
+        _persist_probe(settings)  # survive restarts within the freshness / cooldown window
+        log.info(
+            "Downloader probe finished: ok=%s cooldown=%ss detail=%s",
+            ok, cooldown, detail,
+        )
         return _last_probe
 
 
@@ -232,9 +264,13 @@ def probing() -> bool:
 async def periodic_probe_loop(settings: Settings, has_active_jobs) -> None:
     """Background task: keep the stored probe result fresh.
 
-    Ticks every minute and probes whenever the result is stale, skipping
-    ticks while a real job runs (probes must not compete for the same
-    rate-limited upstream services) — the next tick catches up.
+    Ticks every minute and probes whenever one is due (``not probe_is_fresh``),
+    skipping ticks while a real job runs (probes must not compete for the same
+    rate-limited upstream services) — the next tick catches up. "Due" normally
+    means one interval has passed, but after a cooldown failure it means the
+    cooldown has expired, so we retry right when the server is back rather than
+    hammering it (or waiting a full interval). The 1-minute tick is a cheap
+    time-comparison; the deadline itself lives in ``_next_probe_at``.
     """
     if settings.probe_interval_minutes <= 0:
         log.info("Periodic downloader probe disabled (PROBE_INTERVAL_MINUTES=0)")

@@ -38,9 +38,15 @@ BINARY_NAME = "spotiflac-dl"
 # Per-track header: "Track [N/M] <title> — <artists>". Anchored on "Track [".
 _TRACK_HDR_RE = re.compile(r"Track\s*\[(\d+)\s*/\s*(\d+)\]\s*(.+?)\s*$")
 
+# Community rate-limit line, e.g. "... on scheduled cooldown (503), back in ~4534s".
+_COOLDOWN_RE = re.compile(r"back in ~(\d+)s")
+
 
 class SpotiFlacError(RuntimeError):
-    pass
+    """A run failed. ``cooldown_seconds`` is set when the failure was (only) a
+    community-endpoint cooldown, so callers can retry once it expires."""
+
+    cooldown_seconds: int | None = None
 
 
 def resolve_binary() -> str | None:
@@ -145,6 +151,7 @@ def run_spotiflac(
         raise SpotiFlacError(f"failed to launch {BINARY_NAME}: {exc}") from exc
 
     tail: list[str] = []
+    cooldown_seconds: int | None = None
     assert proc.stdout is not None
     try:
         for raw in proc.stdout:
@@ -153,6 +160,11 @@ def run_spotiflac(
             tail.append(line)
             if len(tail) > 20:
                 del tail[0]
+            m = _COOLDOWN_RE.search(line)
+            if m:
+                secs = int(m.group(1))
+                # Earliest a service recovers is the shortest cooldown seen.
+                cooldown_seconds = secs if cooldown_seconds is None else min(cooldown_seconds, secs)
             if progress_cb is not None:
                 with contextlib.suppress(Exception):
                     _parse_line(line, progress_cb)
@@ -163,4 +175,6 @@ def run_spotiflac(
 
     if returncode != 0:
         detail = tail[-1] if tail else f"exit code {returncode}"
-        raise SpotiFlacError(f"SpotiFLAC download failed (exit {returncode}): {detail}")
+        err = SpotiFlacError(f"SpotiFLAC download failed (exit {returncode}): {detail}")
+        err.cooldown_seconds = cooldown_seconds
+        raise err
