@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
-import { useSettingsStore, normalizeUrl } from '../stores/settingsStore';
-import { testConnection } from '../api/jobs';
+import { useSettingsStore } from '../stores/settingsStore';
 
-// Shared server URL + API key form (first-run setup and settings).
+// Shared server URL + API key form (first-run setup and settings). There is no
+// connection test here: whether the server works is reported solely by the
+// Import screen from the /downloader/status endpoint after saving.
 export function ServerForm({ onSaved }) {
   const colors = useTheme();
   const serverUrl = useSettingsStore((s) => s.serverUrl);
@@ -25,28 +26,16 @@ export function ServerForm({ onSaved }) {
     fontSize: 14,
   };
 
-  const test = async () => {
-    setBusy(true);
-    setResult(null);
-    try {
-      await testConnection(normalizeUrl(url), key.trim());
-      setResult({ ok: true, message: 'Connected — server and API key look good.' });
-      return true;
-    } catch (err) {
-      setResult({ ok: false, message: String(err?.message || err) });
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const save = async () => {
     if (!url.trim()) return;
     setBusy(true);
+    setResult(null);
     try {
       await saveServer(url, key);
       setResult({ ok: true, message: 'Saved.' });
       onSaved?.();
+    } catch (err) {
+      setResult({ ok: false, message: String(err?.message || err) });
     } finally {
       setBusy(false);
     }
@@ -101,28 +90,17 @@ export function ServerForm({ onSaved }) {
         </View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', gap: 12, marginTop: 18 }}>
-        <Pressable
-          onPress={test}
-          disabled={busy || !url.trim()}
-          style={({ pressed }) => ({
-            flex: 1, borderColor: colors.accent, borderWidth: 1, borderRadius: 24,
-            paddingVertical: 12, alignItems: 'center',
-            opacity: busy || !url.trim() ? 0.5 : pressed ? 0.8 : 1,
-          })}
-        >
-          {busy ? <ActivityIndicator color={colors.accent} /> : <Text style={{ color: colors.accent, fontWeight: '600' }}>Test connection</Text>}
-        </Pressable>
+      <View style={{ marginTop: 18 }}>
         <Pressable
           onPress={save}
           disabled={busy || !url.trim()}
           style={({ pressed }) => ({
-            flex: 1, backgroundColor: colors.accent, borderRadius: 24,
+            backgroundColor: colors.accent, borderRadius: 24,
             paddingVertical: 12, alignItems: 'center',
             opacity: busy || !url.trim() ? 0.5 : pressed ? 0.85 : 1,
           })}
         >
-          <Text style={{ color: colors.onAccent, fontWeight: '700' }}>Save</Text>
+          {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={{ color: colors.onAccent, fontWeight: '700' }}>Save</Text>}
         </Pressable>
       </View>
     </View>

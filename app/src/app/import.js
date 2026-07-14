@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -8,45 +8,44 @@ import { useTheme } from '../theme/useTheme';
 import { useImportStore } from '../stores/importStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { startImport, cancelImport } from '../downloads/importManager';
-import { getDownloaderStatus, probeDownloader } from '../api/jobs';
-import { HttpError } from '../api/client';
+import { getDownloaderStatus } from '../api/jobs';
 import { formatBytes } from '../utils/format';
 
-// Availability card for the server's download engine. SpotiFLAC's upstream
-// services break often, so surface state before the user pastes a link.
-function DownloaderStatusCard({ colors }) {
-  const [status, setStatus] = useState(null);
-  const [hidden, setHidden] = useState(false);
-  const [testing, setTesting] = useState(false);
+// Availability card for the server's download engine. This is the ONLY way the
+// app learns whether the backend is working — it renders the /downloader/status
+// response passed down by the screen. There is no separate connection/probe
+// test; the probe result shown here is the one the backend refreshes on its own
+// schedule and reports in /status.
+function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
+  if (statusState === 'loading' && !status) {
+    return (
+      <View style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
+        <ActivityIndicator size="small" color={colors.accent} />
+        <Text style={{ color: colors.textDim, fontSize: 13, marginLeft: 10 }}>Checking server…</Text>
+      </View>
+    );
+  }
 
-  const refresh = async () => {
-    try {
-      setStatus(await getDownloaderStatus());
-    } catch (err) {
-      // Older backend without the endpoint — hide the card entirely.
-      if (err instanceof HttpError && err.status === 404) setHidden(true);
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const runProbe = async () => {
-    setTesting(true);
-    try {
-      // User explicitly asked for a test — always run a live one.
-      await probeDownloader(true);
-    } catch (err) {
-      Alert.alert('Test failed to run', String(err?.message || err));
-    } finally {
-      setTesting(false);
-      refresh();
-    }
-  };
-
-  if (hidden || !status) return null;
+  // Reachability/auth failure — the request to /status itself didn't succeed.
+  if (statusState === 'error' || !status) {
+    return (
+      <View style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="cloud-offline" size={20} color={colors.danger} />
+          <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14, marginLeft: 8, flex: 1 }}>
+            Can’t reach the server
+          </Text>
+          <Pressable onPress={onRetry} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}>
+            <Ionicons name="refresh" size={16} color={colors.accent} />
+          </Pressable>
+        </View>
+        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
+          Check the server address and API key in settings. Importing stays disabled until the
+          server responds.
+        </Text>
+      </View>
+    );
+  }
 
   const probeAgeMin = status.lastProbe?.at
     ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
@@ -83,34 +82,16 @@ function DownloaderStatusCard({ colors }) {
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14, marginLeft: 8, flex: 1 }}>
           {headline}
         </Text>
+        <Pressable onPress={onRetry} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}>
+          <Ionicons name="refresh" size={16} color={colors.textDim} />
+        </Pressable>
       </View>
       <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6, lineHeight: 17 }}>{note}</Text>
       {status.lastProbe?.ok && !probeStale ? (
         <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
-          Download test passed{probeAgeMin != null ? ` ${probeAgeMin} min ago` : ''} (
+          Download check passed{probeAgeMin != null ? ` ${probeAgeMin} min ago` : ''} (
           {Math.round(status.lastProbe.elapsedSeconds)}s).
         </Text>
-      ) : null}
-      {status.importable ? (
-        <Pressable
-          onPress={runProbe}
-          disabled={testing || status.probing || status.activeJobs}
-          style={({ pressed }) => ({
-            flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
-            marginTop: 10, opacity: testing || status.probing || status.activeJobs ? 0.5 : pressed ? 0.7 : 1,
-          })}
-        >
-          {testing || status.probing ? (
-            <ActivityIndicator size="small" color={colors.accent} />
-          ) : (
-            <Ionicons name="pulse-outline" size={16} color={colors.accent} />
-          )}
-          <Text style={{ color: colors.accent, fontSize: 13, fontWeight: '600', marginLeft: 6 }}>
-            {testing || status.probing
-              ? 'Testing — downloads one sample track, may take a couple of minutes…'
-              : 'Test downloads now'}
-          </Text>
-        </Pressable>
       ) : null}
     </View>
   );
@@ -132,12 +113,42 @@ export default function ImportScreen() {
   const st = useImportStore();
   const [url, setUrl] = useState('');
   const [starting, setStarting] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [statusState, setStatusState] = useState('loading'); // loading | loaded | error
 
   const running = ['creating', 'active', 'draining', 'cleanup'].includes(st.phase);
+
+  // The backend's health, straight from /downloader/status — the single gate on
+  // whether we're allowed to send import requests.
+  const refreshStatus = useCallback(async () => {
+    setStatusState('loading');
+    try {
+      const s = await getDownloaderStatus();
+      setStatus(s);
+      setStatusState('loaded');
+    } catch {
+      setStatus(null);
+      setStatusState('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (serverUrl) refreshStatus();
+  }, [serverUrl, refreshStatus]);
+
+  // OK to import only when the server responded and its engine is available.
+  const backendOk = statusState === 'loaded' && !!status?.importable;
 
   const begin = async () => {
     const link = url.trim();
     if (!link) return;
+    if (!backendOk) {
+      Alert.alert(
+        'Server not ready',
+        'The backend isn’t reporting a healthy status right now. Check the download-engine status above and try again.',
+      );
+      return;
+    }
     setStarting(true);
     try {
       await startImport(link);
@@ -146,6 +157,8 @@ export default function ImportScreen() {
       Alert.alert('Could not start import', String(err?.message || err));
     } finally {
       setStarting(false);
+      // A job may have flipped activeJobs/lastJob — refresh the card.
+      refreshStatus();
     }
   };
 
@@ -182,7 +195,12 @@ export default function ImportScreen() {
     <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ padding: 20 }}>
       {!running ? (
         <>
-          <DownloaderStatusCard colors={colors} />
+          <DownloaderStatusCard
+            colors={colors}
+            status={status}
+            statusState={statusState}
+            onRetry={refreshStatus}
+          />
           <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600', marginBottom: 8 }}>Paste a link</Text>
           <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 19, marginBottom: 12 }}>
             Paste a playlist, album or track link. Your server fetches the audio and this device
@@ -204,15 +222,20 @@ export default function ImportScreen() {
           </View>
           <Pressable
             onPress={begin}
-            disabled={starting || !url.trim()}
+            disabled={starting || !url.trim() || !backendOk}
             style={({ pressed }) => ({
               backgroundColor: colors.accent,
-              opacity: starting || !url.trim() ? 0.5 : pressed ? 0.85 : 1,
+              opacity: starting || !url.trim() || !backendOk ? 0.5 : pressed ? 0.85 : 1,
               borderRadius: 24, paddingVertical: 14, alignItems: 'center', marginTop: 16,
             })}
           >
             <Text style={{ color: colors.onAccent, fontWeight: '700' }}>{starting ? 'Starting…' : 'Start import'}</Text>
           </Pressable>
+          {statusState !== 'loading' && !backendOk ? (
+            <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+              Importing is disabled until the server reports it’s ready.
+            </Text>
+          ) : null}
 
           {st.phase === 'done' ? (
             <View style={{ marginTop: 24, backgroundColor: colors.surface, borderRadius: 10, padding: 16, flexDirection: 'row', alignItems: 'center' }}>

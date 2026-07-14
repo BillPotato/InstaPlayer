@@ -1,4 +1,4 @@
-import { apiFetch, serverConfig, HttpError } from './client';
+import { apiFetch, serverConfig } from './client';
 
 export function createJob(sourceUrl, preferredSource) {
   const body = { spotifyUrl: sourceUrl };
@@ -30,34 +30,10 @@ export function artUrl(jobId, n) {
   return `${serverConfig().baseUrl}/jobs/${jobId}/art/${n}`;
 }
 
-// Availability of the server's download engine (SpotiFLAC). status is cheap;
-// probe actually downloads one sample track server-side and can take minutes.
+// The single source of truth for whether the backend is working: reachability
+// (the request succeeds), auth (401/403 on a bad key), and engine availability
+// (the `importable` field) all surface here. The frontend has no separate
+// connection/probe test — it only knows the backend's health through this.
 export function getDownloaderStatus() {
   return apiFetch('/downloader/status');
-}
-
-// force=true always runs a live download test; otherwise the backend answers
-// instantly from its periodic-probe cache while fresh.
-export function probeDownloader(force = false) {
-  return apiFetch(`/downloader/probe${force ? '?force=true' : ''}`, {
-    method: 'POST',
-    timeoutMs: 300000,
-  });
-}
-
-// Connection test used by the setup/server screens. Runs against explicit
-// values (not yet saved). /health proves reachability; a GET for a job id
-// that cannot exist proves the key: 404 = authorized, 401 = bad key.
-export async function testConnection(baseUrl, apiKey) {
-  await apiFetch('/health', { baseUrl, apiKey: '', timeoutMs: 8000 });
-  try {
-    await apiFetch(`/jobs/${'0'.repeat(32)}`, { baseUrl, apiKey, timeoutMs: 8000 });
-    return true;
-  } catch (err) {
-    if (err instanceof HttpError && err.status === 404) return true;
-    if (err instanceof HttpError && (err.status === 401 || err.status === 403)) {
-      throw new Error('Server reachable, but the API key was rejected');
-    }
-    throw err;
-  }
 }
