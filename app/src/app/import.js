@@ -16,9 +16,9 @@ import { formatBytes } from '../utils/format';
 // response passed down by the screen. There is no separate connection/probe
 // test; the probe result shown here is the one the backend refreshes on its own
 // schedule and reports in /status.
-// Status light colours: green = ready, yellow = works but flaky, red = down.
+// Status light colours: green = ready, red = can't download (down/unreachable
+// or downloads are currently failing).
 const LIGHT_GREEN = '#22C55E';
-const LIGHT_YELLOW = '#E5A50A';
 const LIGHT_RED = '#EF4444';
 
 function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
@@ -39,10 +39,10 @@ function DownloaderStatusCard({ colors, status, statusState, onRetry }) {
       light = LIGHT_RED;
       label = 'Downloads unavailable';
     } else if (probeFresh && status.lastProbe && !status.lastProbe.ok) {
-      light = LIGHT_YELLOW;
-      label = 'Some download issues';
+      light = LIGHT_RED;
+      label = 'Downloads failing';
     } else if (status.lastJob?.status === 'failed') {
-      light = LIGHT_YELLOW;
+      light = LIGHT_RED;
       label = 'Last download failed';
     } else {
       light = LIGHT_GREEN;
