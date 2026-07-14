@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { TrackArt } from '../../components/TrackArt';
 import { TrackRow } from '../../components/TrackRow';
@@ -8,6 +8,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { useTrackMenu } from '../../components/TrackMenu';
 import { useTheme } from '../../theme/useTheme';
 import { useLibraryStore } from '../../stores/libraryStore';
+import { useLibraryReload } from '../../library/useLibraryReload';
 import { recentlyPlayed } from '../../db/historyRepo';
 import { recentlyAdded, albums as loadAlbums, artists as loadArtists } from '../../db/trackRepo';
 import { allPlaylists } from '../../db/playlistRepo';
@@ -97,7 +98,7 @@ export default function HomeScreen() {
   const [data, setData] = useState({ played: [], added: [], playlists: [], albums: [], artists: [] });
   const menu = useTrackMenu();
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       Promise.all([recentlyPlayed(15), recentlyAdded(10), allPlaylists(), loadAlbums(), loadArtists()]).then(

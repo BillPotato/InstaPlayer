@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import ReorderableList, { useReorderableDrag } from 'react-native-reorderable-list';
 import { TrackArt } from '../../../../components/TrackArt';
 import { TrackRow } from '../../../../components/TrackRow';
@@ -12,6 +12,7 @@ import { useTrackMenu } from '../../../../components/TrackMenu';
 import { PlayShuffleBar } from '../../../../components/PlayShuffleBar';
 import { useTheme } from '../../../../theme/useTheme';
 import { useLibraryStore, bumpLibrary } from '../../../../stores/libraryStore';
+import { useLibraryReload } from '../../../../library/useLibraryReload';
 import {
   getPlaylist, playlistTracks, renamePlaylist, deletePlaylist,
   removePlaylistEntry, reorderPlaylist,
@@ -81,7 +82,7 @@ export default function PlaylistScreen() {
     };
   }, [id, navigation, colors.text]);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => reload(), [reload, tick])
   );
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TrackRow } from '../../components/TrackRow';
 import { TrackArt } from '../../components/TrackArt';
@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { useTrackMenu } from '../../components/TrackMenu';
 import { useTheme } from '../../theme/useTheme';
 import { useLibraryStore } from '../../stores/libraryStore';
+import { useLibraryReload } from '../../library/useLibraryReload';
 import { searchTracks, albums as allAlbums, artists as allArtists, storageStats } from '../../db/trackRepo';
 import { allPlaylists } from '../../db/playlistRepo';
 import { playContext } from '../../player/playerService';
@@ -79,7 +80,7 @@ export default function SearchScreen() {
   const menu = useTrackMenu();
   const debounceRef = useRef(null);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       Promise.all([storageStats(), allAlbums(), allArtists(), allPlaylists()]).then(

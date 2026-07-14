@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
 import { View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { TrackRow } from '../../../components/TrackRow';
 import { EmptyState } from '../../../components/EmptyState';
@@ -8,6 +7,7 @@ import { PlayShuffleBar } from '../../../components/PlayShuffleBar';
 import { useTrackMenu } from '../../../components/TrackMenu';
 import { useTheme } from '../../../theme/useTheme';
 import { useLibraryStore } from '../../../stores/libraryStore';
+import { useLibraryReload } from '../../../library/useLibraryReload';
 import { allTracks } from '../../../db/trackRepo';
 import { playContext } from '../../../player/playerService';
 
@@ -17,7 +17,7 @@ export default function SongsScreen() {
   const [tracks, setTracks] = useState([]);
   const menu = useTrackMenu();
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       allTracks().then((t) => alive && setTracks(t));

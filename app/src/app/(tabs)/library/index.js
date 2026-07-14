@@ -1,13 +1,14 @@
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { TrackArt } from '../../../components/TrackArt';
 import { SheetMenu } from '../../../components/SheetMenu';
 import { InputDialog } from '../../../components/InputDialog';
 import { useTheme } from '../../../theme/useTheme';
 import { useLibraryStore, bumpLibrary } from '../../../stores/libraryStore';
+import { useLibraryReload } from '../../../library/useLibraryReload';
 import { useImportStore } from '../../../stores/importStore';
 import { storageStats, albums, artists } from '../../../db/trackRepo';
 import { allPlaylists, createPlaylist } from '../../../db/playlistRepo';
@@ -50,7 +51,7 @@ export default function LibraryScreen() {
   const [addOpen, setAddOpen] = useState(false);
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       Promise.all([storageStats(), albums(), artists(), allPlaylists()]).then(([stats, al, ar, pl]) => {

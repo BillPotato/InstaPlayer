@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { TrackRow } from '../../components/TrackRow';
 import { EmptyState } from '../../components/EmptyState';
 import { useTheme } from '../../theme/useTheme';
 import { useLibraryStore } from '../../stores/libraryStore';
+import { useLibraryReload } from '../../library/useLibraryReload';
 import { storageStats, tracksBySize } from '../../db/trackRepo';
 import { deleteTrack } from '../../library/libraryActions';
 import { formatBytes, trackCountLabel } from '../../utils/format';
@@ -16,7 +16,7 @@ export default function StorageScreen() {
   const [stats, setStats] = useState(null);
   const [tracks, setTracks] = useState([]);
 
-  useFocusEffect(
+  useLibraryReload(
     useCallback(() => {
       let alive = true;
       Promise.all([storageStats(), tracksBySize()]).then(([s, t]) => {
