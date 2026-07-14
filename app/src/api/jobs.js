@@ -1,8 +1,9 @@
 import { apiFetch, serverConfig } from './client';
 
-export function createJob(sourceUrl, preferredSource) {
+export function createJob(sourceUrl, preferredSource, quality) {
   const body = { spotifyUrl: sourceUrl };
   if (preferredSource) body.preferredSource = preferredSource;
+  if (quality) body.quality = quality;
   return apiFetch('/jobs', { method: 'POST', body, timeoutMs: 30000 });
 }
 

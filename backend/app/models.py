@@ -25,6 +25,9 @@ class Job(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     spotify_url: Mapped[str] = mapped_column(String)
     preferred_source: Mapped[str | None] = mapped_column(String)
+    # Per-job quality profile ("LOSSLESS" | "HI_RES"); None falls back to the
+    # server default (Settings.quality). Added column — see db._migrate.
+    quality: Mapped[str | None] = mapped_column(String)
 
     # queued | running | completed | failed
     status: Mapped[str] = mapped_column(String, default="queued", index=True)

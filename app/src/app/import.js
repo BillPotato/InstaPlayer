@@ -110,6 +110,8 @@ export default function ImportScreen() {
   const colors = useTheme();
   const router = useRouter();
   const serverUrl = useSettingsStore((s) => s.serverUrl);
+  const quality = useSettingsStore((s) => s.quality);
+  const setQuality = useSettingsStore((s) => s.setQuality);
   const st = useImportStore();
   const [url, setUrl] = useState('');
   const [starting, setStarting] = useState(false);
@@ -151,7 +153,7 @@ export default function ImportScreen() {
     }
     setStarting(true);
     try {
-      await startImport(link);
+      await startImport(link, undefined, quality);
       setUrl('');
     } catch (err) {
       Alert.alert('Could not start import', String(err?.message || err));
@@ -220,6 +222,38 @@ export default function ImportScreen() {
               <Ionicons name="clipboard-outline" size={18} color={colors.textDim} />
             </Pressable>
           </View>
+
+          <Text style={{ color: colors.textDim, fontSize: 13, marginTop: 16, marginBottom: 8 }}>Quality</Text>
+          <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceHigh, borderRadius: 10, padding: 4 }}>
+            {[
+              { value: 'LOSSLESS', label: 'Lossless', sub: '16-bit' },
+              { value: 'HI_RES', label: 'Hi-Res', sub: '24-bit' },
+            ].map((opt) => {
+              const active = quality === opt.value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => setQuality(opt.value)}
+                  style={({ pressed }) => ({
+                    flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+                    backgroundColor: active ? colors.accent : 'transparent',
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <Text style={{ color: active ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>
+                    {opt.label}
+                  </Text>
+                  <Text style={{ color: active ? colors.onAccent : colors.textDim, fontSize: 11 }}>
+                    {opt.sub}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 6 }}>
+            Hi-Res isn’t available for every track; the server falls back to the best it can get.
+          </Text>
+
           <Pressable
             onPress={begin}
             disabled={starting || !url.trim() || !backendOk}

@@ -130,7 +130,7 @@ async def create_job(
     manager: JobManager = Depends(get_job_manager),
     session: Session = Depends(get_session),
 ) -> Job:
-    job_id = await manager.submit(payload.spotifyUrl, payload.preferredSource)
+    job_id = await manager.submit(payload.spotifyUrl, payload.preferredSource, payload.quality)
     job = session.scalar(select(Job).where(Job.id == job_id))
     if job is None:
         raise HTTPException(500, detail="Job was created but could not be retrieved")

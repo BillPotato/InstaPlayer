@@ -12,6 +12,7 @@ class JobOut(BaseModel):
     id: str
     spotify_url: str
     preferred_source: str | None
+    quality: str | None = None
     status: str
     total: int
     completed: int
@@ -24,6 +25,8 @@ class JobOut(BaseModel):
 class JobCreate(BaseModel):
     spotifyUrl: str
     preferredSource: str | None = None
+    # Optional per-job quality; omitted → server default (Settings.quality).
+    quality: str | None = None
 
     @field_validator("spotifyUrl")
     @classmethod
@@ -36,6 +39,16 @@ class JobCreate(BaseModel):
                 "spotifyUrl must be a Spotify URL (https://open.spotify.com/...) "
                 "or Spotify URI (spotify:...)"
             )
+        return v
+
+    @field_validator("quality")
+    @classmethod
+    def validate_quality(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().upper()
+        if v not in {"LOSSLESS", "HI_RES"}:
+            raise ValueError("quality must be LOSSLESS or HI_RES")
         return v
 
 
