@@ -123,8 +123,10 @@ This is the web server file. It defines all the URLs your phone can call:
 | `GET /jobs/{id}/files/{n}` | Download song number `n` |
 | `GET /jobs/{id}/art/{n}` | Download the album art for song `n` |
 | `WS /jobs/{id}/events` | A live connection that streams progress updates |
-| `GET /downloader/status` | Is the download engine (SpotiFLAC) healthy? Cheap: engine-binary present + version, configured sources, last job outcome, stored probe result |
+| `GET /downloader/status` | Is the download engine (SpotiFLAC) healthy? Cheap: engine-binary present + version, configured sources, last job outcome (`lastJob`), the currently running job's progress (`activeJob` — id/total/completed/current), the stored probe result (`lastProbe`, including `cooldownUntil` when upstream is rate-limiting), and `nextProbeAt` |
 | `POST /downloader/probe` | Deep check: downloads one sample track into a throwaway dir and reports ok/failure. Answers instantly from the stored result while fresh (kept warm by a periodic probe every `PROBE_INTERVAL_MINUTES`); `?force=true` always runs live. Live runs are rejected (409) while a job is active. See `PROBE_SPOTIFY_URL` / `PROBE_TIMEOUT_SECONDS` |
+| `GET /logs` | Recent server log lines from an in-memory ring buffer (last ~1000 lines: job lifecycle + engine output). `?after=<seq>` returns only lines newer than a previous response, so polling is cheap. Lost on restart by design |
+| `GET /admin` | The admin dashboard — a single self-contained web page (no auth on the page itself; it asks for the API key and calls the endpoints above). Status light, force-probe button with cooldown countdown, active-download progress with cancel, live logs |
 
 It also runs two things at startup:
 - **Orphan cleanup**: if the server crashed while a job was running, that job

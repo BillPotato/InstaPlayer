@@ -30,6 +30,9 @@ cd backend
 cp .env.example .env          # set API_KEY to a long random string
 docker compose up --build
 # API is now on http://localhost:8000  (docs at /docs)
+# Admin dashboard at http://localhost:8000/admin — status light, force-probe
+# button, live logs, active-download progress + cancel, cooldown countdown.
+# It asks for your API_KEY on first load (stored in the browser).
 ```
 
 Resolve + download a playlist:
