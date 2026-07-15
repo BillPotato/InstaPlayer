@@ -53,13 +53,15 @@ def _fail_orphaned_jobs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN001
-    logbuffer.install()  # capture app logs for GET /logs (admin dashboard)
+    settings = get_settings()
+    # Capture app logs into per-day files for GET /logs (admin dashboard).
+    logbuffer.install(settings.logs_dir, settings.log_retention_days)
     init_db()
     _fail_orphaned_jobs()
     manager = get_job_manager()
     # Restore the last probe result from disk so a restart within the freshness
     # window doesn't trigger another (slow, rate-limit-hungry) probe.
-    downloader.load_persisted_probe(get_settings())
+    downloader.load_persisted_probe(settings)
     reaper = asyncio.create_task(manager.reaper())
     prober = asyncio.create_task(
         downloader.periodic_probe_loop(get_settings(), manager.has_active_jobs)
@@ -97,14 +99,23 @@ def admin_dashboard() -> HTMLResponse:
     return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
 
 
-@app.get("/logs", dependencies=[Depends(require_auth)])
-def get_logs(after: int = 0, limit: int = 500) -> dict:
-    """Recent server log lines (in-memory ring buffer, admin dashboard).
+@app.get("/logs/days", dependencies=[Depends(require_auth)])
+def get_log_days() -> dict:
+    """Days that have log files, plus the server's current day (for the
+    dashboard's calendar bounds and default view)."""
+    return {"days": logbuffer.available_days(), "today": logbuffer.today()}
 
-    Pass ``after=<lastSeq>`` to fetch only lines newer than the previous
-    response — makes a tight poll near-free."""
-    lines = logbuffer.since(after, limit)
-    return {"lines": lines, "lastSeq": lines[-1]["seq"] if lines else after}
+
+@app.get("/logs", dependencies=[Depends(require_auth)])
+def get_logs(date: str | None = None, after: int = 0, limit: int = 2000) -> dict:
+    """Log lines for one day (``?date=YYYY-MM-DD``, default today).
+
+    ``after`` is a line offset — pass the previous response's ``nextOffset`` to
+    fetch only new lines (cheap polling for today's live tail)."""
+    try:
+        return logbuffer.read_day(date, after=after, limit=limit)
+    except ValueError:
+        raise HTTPException(400, "date must be in YYYY-MM-DD format")
 
 
 # --------------------------------------------------------------------------

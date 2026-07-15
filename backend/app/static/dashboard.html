@@ -59,6 +59,18 @@
   .logtools { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .logtools small { color: var(--dim); }
   .logtools a { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .logbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .navbtn {
+    background: var(--card-hi); color: var(--text); border: 0; border-radius: 6px;
+    padding: 6px 13px; font-size: 15px; line-height: 1; cursor: pointer;
+  }
+  .navbtn:hover:not(:disabled) { background: #333; filter: none; }
+  .navbtn:disabled { opacity: 0.3; cursor: default; }
+  .logbar input[type=date] {
+    background: var(--card-hi); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; color-scheme: dark;
+  }
+  #dayLabel { color: var(--dim); font-size: 12px; }
   /* key overlay */
   #keyform {
     position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none;
@@ -117,6 +129,12 @@
 
   <div class="card">
     <h2>Logs</h2>
+    <div class="logbar">
+      <button class="navbtn" id="prevDay" title="Previous day">&#9664;</button>
+      <input type="date" id="logDate">
+      <button class="navbtn" id="nextDay" title="Next day">&#9654;</button>
+      <span id="dayLabel"></span>
+    </div>
     <div id="logbox"></div>
     <div class="logtools">
       <small id="logCount">0 lines</small>
@@ -144,9 +162,13 @@ const KEY_STORAGE = 'instaplayer_api_key';
 let apiKey = localStorage.getItem(KEY_STORAGE) || '';
 let status = null;          // last /downloader/status body
 let statusFailed = false;   // last status fetch errored (unreachable / bad key)
-let lastSeq = 0;            // /logs incremental cursor
 let logLines = 0;
 let toastTimer = null;
+// log day navigation
+let serverToday = null;     // server's current UTC day
+let minDay = null;          // earliest day with logs
+let currentDay = null;      // day currently shown
+let logOffset = 0;          // line-offset cursor within currentDay
 
 // ---- auth ------------------------------------------------------------
 function showKeyForm(rejected) {
@@ -161,7 +183,7 @@ $('keySave').onclick = () => {
   localStorage.setItem(KEY_STORAGE, v);
   $('keyform').classList.remove('show');
   $('keyInput').value = '';
-  pollStatus(); pollLogs();
+  boot();
 };
 $('keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('keySave').onclick(); });
 $('changekey').onclick = () => showKeyForm(false);
@@ -270,10 +292,12 @@ function escapeHtml(s) {
 }
 
 // ---- logs ---------------------------------------------------------------
-const MAX_RENDERED = 500;
+const MAX_RENDERED = 2000;
 function appendLogs(lines) {
   if (!lines.length) return;
   const box = $('logbox');
+  const ph = $('logPlaceholder');
+  if (ph) ph.remove();
   const stickToBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
   const frag = document.createDocumentFragment();
   for (const e of lines) {
@@ -292,7 +316,61 @@ function appendLogs(lines) {
   $('logCount').textContent = `${Math.min(logLines, MAX_RENDERED)} lines`;
   if (stickToBottom) box.scrollTop = box.scrollHeight;
 }
+function setPlaceholder(text) {
+  $('logbox').innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(text)}</div>`;
+}
 $('clearLogs').onclick = () => { $('logbox').innerHTML = ''; logLines = 0; $('logCount').textContent = '0 lines'; };
+
+// ---- day navigation -----------------------------------------------------
+function shiftDay(str, delta) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+function dayLabelFor(str) {
+  if (str === serverToday) return 'Today';
+  if (serverToday && str === shiftDay(serverToday, -1)) return 'Yesterday';
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined,
+    { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+function updateLogControls() {
+  const input = $('logDate');
+  input.max = serverToday || '';
+  input.min = minDay || '';
+  input.value = currentDay || serverToday || '';
+  $('dayLabel').textContent = currentDay ? dayLabelFor(currentDay) : '';
+  $('prevDay').disabled = !currentDay || (minDay && currentDay <= minDay);
+  $('nextDay').disabled = !currentDay || (serverToday && currentDay >= serverToday);
+}
+function switchDay(day) {
+  if (!day) return;
+  if (serverToday && day > serverToday) day = serverToday;
+  if (minDay && day < minDay) day = minDay;
+  currentDay = day;
+  logOffset = 0;
+  logLines = 0;
+  $('logCount').textContent = '0 lines';
+  setPlaceholder('Loading…');
+  updateLogControls();
+  fetchLogs(true);
+}
+$('prevDay').onclick = () => { if (currentDay) switchDay(shiftDay(currentDay, -1)); };
+$('nextDay').onclick = () => { if (currentDay) switchDay(shiftDay(currentDay, 1)); };
+$('logDate').onchange = (e) => { if (e.target.value) switchDay(e.target.value); };
+
+async function refreshDays() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/logs/days');
+    if (!res.ok) return;
+    const body = await res.json();
+    serverToday = body.today;
+    const days = body.days || [];
+    minDay = days.length ? days[0] : serverToday;
+    if (!currentDay) currentDay = serverToday;
+    updateLogControls();
+  } catch (e) { /* transient */ }
+}
 
 // ---- actions --------------------------------------------------------------
 $('probeBtn').onclick = async () => {
@@ -339,20 +417,34 @@ async function pollStatus() {
   tickCountdown();
 }
 
-async function pollLogs() {
-  if (document.hidden || !apiKey) return;
+// Fetch logs for the current day. Past days are static (fetched once on
+// switch, initial=true); only today's tail is polled for new lines.
+async function fetchLogs(initial) {
+  if (!apiKey || !currentDay) return;
+  if (!initial && currentDay !== serverToday) return;
   try {
-    const res = await api(`/logs?after=${lastSeq}`);
+    const res = await api(`/logs?date=${currentDay}&after=${logOffset}`);
     if (!res.ok) return;
     const body = await res.json();
+    if (initial) {
+      $('logbox').innerHTML = '';
+      logLines = 0;
+      $('logCount').textContent = '0 lines';
+      if (!body.exists || !(body.lines && body.lines.length)) {
+        setPlaceholder('No logs for this day.');
+      } else if (body.truncated) {
+        const note = document.createElement('div');
+        note.style.color = 'var(--dim)';
+        note.textContent = '… showing the latest lines of this day …';
+        $('logbox').appendChild(note);  // not #logPlaceholder, so it persists
+      }
+    }
     appendLogs(body.lines || []);
-    lastSeq = body.lastSeq || lastSeq;
-  } catch (e) {
-    /* transient; next poll retries */
-  }
+    if (body.nextOffset != null) logOffset = body.nextOffset;
+  } catch (e) { /* transient; next poll retries */ }
 }
 
-// status: 10s normally, 3s while probing or a job is active; logs: 2s.
+// status: 10s normally, 3s while probing or a job is active; today's logs: 2s.
 let lastStatusPoll = 0;
 setInterval(() => {
   if (document.hidden) return;
@@ -363,15 +455,21 @@ setInterval(() => {
     pollStatus();
   }
 }, 1000);
-setInterval(pollLogs, 2000);
+setInterval(() => { if (!document.hidden) fetchLogs(false); }, 2000);
+setInterval(() => { if (!document.hidden) refreshDays(); }, 60000);
 setInterval(tickCountdown, 1000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); pollLogs(); }
+  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); }
 });
 
 // ---- boot -------------------------------------------------------------------
+async function boot() {
+  pollStatus();
+  await refreshDays();
+  switchDay(currentDay || serverToday);
+}
 if (!apiKey) showKeyForm(false);
-else { pollStatus(); pollLogs(); }
+else boot();
 </script>
 </body>
 </html>

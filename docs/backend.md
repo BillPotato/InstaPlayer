@@ -125,8 +125,9 @@ This is the web server file. It defines all the URLs your phone can call:
 | `WS /jobs/{id}/events` | A live connection that streams progress updates |
 | `GET /downloader/status` | Is the download engine (SpotiFLAC) healthy? Cheap: engine-binary present + version, configured sources, last job outcome (`lastJob`), the currently running job's progress (`activeJob` — id/total/completed/current), the stored probe result (`lastProbe`, including `cooldownUntil` when upstream is rate-limiting), and `nextProbeAt` |
 | `POST /downloader/probe` | Deep check: downloads one sample track into a throwaway dir and reports ok/failure. Answers instantly from the stored result while fresh (kept warm by a periodic probe every `PROBE_INTERVAL_MINUTES`); `?force=true` always runs live. Live runs are rejected (409) while a job is active. See `PROBE_SPOTIFY_URL` / `PROBE_TIMEOUT_SECONDS` |
-| `GET /logs` | Recent server log lines from an in-memory ring buffer (last ~1000 lines: job lifecycle + engine output). `?after=<seq>` returns only lines newer than a previous response, so polling is cheap. Lost on restart by design |
-| `GET /admin` | The admin dashboard — a single self-contained web page (no auth on the page itself; it asks for the API key and calls the endpoints above). Status light, force-probe button with cooldown countdown, active-download progress with cancel, live logs |
+| `GET /logs` | Server log lines for one day (job lifecycle + engine output), written to a per-day file `data/logs/YYYY-MM-DD.jsonl`. `?date=YYYY-MM-DD` (default today); `?after=<lineOffset>` returns only new lines so today's tail polls cheaply. Old files are pruned after `LOG_RETENTION_DAYS` |
+| `GET /logs/days` | The days that have log files, plus the server's current day — powers the dashboard's calendar and prev/next arrows |
+| `GET /admin` | The admin dashboard — a single self-contained web page (no auth on the page itself; it asks for the API key and calls the endpoints above). Status light, force-probe button with cooldown countdown, active-download progress with cancel, and day-by-day logs (calendar picker + previous/next-day arrows) |
 
 It also runs two things at startup:
 - **Orphan cleanup**: if the server crashed while a job was running, that job
