@@ -651,33 +651,36 @@ async function fetchLogs(initial) {
   } catch (e) { /* transient; next poll retries */ }
 }
 
-// status: 10s normally, 3s while probing or a job is active; today's logs: 2s.
-let lastStatusPoll = 0;
+// One scheduler for every poll, with an adaptive cadence. When idle the loops
+// are slow (the page stays quiet — no per-second request flood); when "busy"
+// (a job running or a probe in flight) they tighten so logs/progress stay live.
+// The countdown ticks locally, so status doesn't need frequent polling.
+const POLLERS = [
+  { fn: pollStatus, idle: 12000, busy: 3000, last: 0 },
+  { fn: () => fetchLogs(false), idle: 15000, busy: 2000, last: 0 },
+  { fn: pollJobs, idle: 20000, busy: 5000, last: 0 },
+  { fn: pollSystem, idle: 60000, busy: 60000, last: 0 },
+  { fn: pollHistory, idle: 120000, busy: 120000, last: 0 },
+  { fn: refreshDays, idle: 300000, busy: 300000, last: 0 },
+];
 setInterval(() => {
-  if (document.hidden) return;
-  const busy = status && (status.probing || status.activeJob);
-  const interval = busy ? 3000 : 10000;
-  if (Date.now() - lastStatusPoll >= interval) {
-    lastStatusPoll = Date.now();
-    pollStatus();
+  if (document.hidden || !apiKey) return;
+  const busy = !!(status && (status.probing || status.activeJob));
+  const now = Date.now();
+  for (const p of POLLERS) {
+    if (now - p.last >= (busy ? p.busy : p.idle)) { p.last = now; p.fn(); }
   }
 }, 1000);
-setInterval(() => { if (!document.hidden) fetchLogs(false); }, 2000);
-setInterval(() => { if (!document.hidden) refreshDays(); }, 60000);
-setInterval(() => { if (!document.hidden) pollSystem(); }, 15000);
-setInterval(() => { if (!document.hidden) pollJobs(); }, 8000);
-setInterval(() => { if (!document.hidden) pollHistory(); }, 30000);
 setInterval(tickCountdown, 1000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); pollSystem(); pollJobs(); pollHistory(); }
+  // On returning to the tab, refresh everything on the next tick.
+  if (!document.hidden) for (const p of POLLERS) p.last = 0;
 });
 
 // ---- boot -------------------------------------------------------------------
 async function boot() {
-  pollStatus();
-  pollSystem();
-  pollJobs();
-  pollHistory();
+  // Immediate first paint of the calendar + today's logs; the scheduler above
+  // (POLLERS all start due) fills in status/jobs/system/history within ~1s.
   await refreshDays();
   switchDay(currentDay || serverToday);
 }
