@@ -66,10 +66,11 @@
   }
   .navbtn:hover:not(:disabled) { background: #333; filter: none; }
   .navbtn:disabled { opacity: 0.3; cursor: default; }
-  .logbar input[type=date] {
+  .logbar input[type=date], .logbar input[type=text], .logbar select {
     background: var(--card-hi); color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; padding: 6px 10px; font-size: 13px; color-scheme: dark;
   }
+  .logbar input[type=text] { flex: 1; min-width: 140px; }
   #dayLabel { color: var(--dim); font-size: 12px; }
   /* key overlay */
   #keyform {
@@ -135,6 +136,15 @@
       <button class="navbtn" id="nextDay" title="Next day">&#9654;</button>
       <span id="dayLabel"></span>
     </div>
+    <div class="logbar">
+      <input type="text" id="logSearch" placeholder="Filter lines…" autocomplete="off">
+      <select id="logLevel">
+        <option value="all">All</option>
+        <option value="warn">Warnings &amp; errors</option>
+        <option value="err">Errors only</option>
+      </select>
+      <button class="navbtn" id="exportDay" title="Download this day's log">&#8681; Export</button>
+    </div>
     <div id="logbox"></div>
     <div class="logtools">
       <small id="logCount">0 lines</small>
@@ -162,7 +172,6 @@ const KEY_STORAGE = 'instaplayer_api_key';
 let apiKey = localStorage.getItem(KEY_STORAGE) || '';
 let status = null;          // last /downloader/status body
 let statusFailed = false;   // last status fetch errored (unreachable / bad key)
-let logLines = 0;
 let toastTimer = null;
 // log day navigation
 let serverToday = null;     // server's current UTC day
@@ -293,33 +302,92 @@ function escapeHtml(s) {
 
 // ---- logs ---------------------------------------------------------------
 const MAX_RENDERED = 2000;
+let logEntries = [];           // current day's fetched lines (capped)
+let logNote = '';              // optional note shown above lines (e.g. truncated)
+
+function lineClass(line) {
+  if (line.startsWith('[spotiflac-dl]')) return 'engine';
+  if (line.startsWith('WARNING')) return 'warn';
+  if (line.startsWith('ERROR')) return 'err';
+  return '';
+}
+function matchesFilter(e) {
+  const level = $('logLevel').value;
+  if (level === 'err' && !e.line.startsWith('ERROR')) return false;
+  if (level === 'warn' && !(e.line.startsWith('ERROR') || e.line.startsWith('WARNING'))) return false;
+  const q = $('logSearch').value.trim().toLowerCase();
+  if (q && !e.line.toLowerCase().includes(q)) return false;
+  return true;
+}
+function renderLogs() {
+  const box = $('logbox');
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const shown = logEntries.filter(matchesFilter);
+  box.innerHTML = '';
+  if (logNote) {
+    const n = document.createElement('div');
+    n.style.color = 'var(--dim)';
+    n.textContent = logNote;
+    box.appendChild(n);
+  }
+  if (!shown.length && !logNote) {
+    box.innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(
+      logEntries.length ? 'No lines match the filter.' : 'No logs for this day.')}</div>`;
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const e of shown) {
+      const div = document.createElement('div');
+      const ts = new Date(e.ts).toLocaleTimeString();
+      div.innerHTML = `<span class="ts">${ts}</span> <span class="${lineClass(e.line)}">${escapeHtml(e.line)}</span>`;
+      frag.appendChild(div);
+    }
+    box.appendChild(frag);
+  }
+  const total = logEntries.length;
+  $('logCount').textContent = shown.length === total
+    ? `${total} lines` : `${shown.length} of ${total} lines`;
+  if (stick) box.scrollTop = box.scrollHeight;
+}
 function appendLogs(lines) {
   if (!lines.length) return;
-  const box = $('logbox');
-  const ph = $('logPlaceholder');
-  if (ph) ph.remove();
-  const stickToBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
-  const frag = document.createDocumentFragment();
-  for (const e of lines) {
-    const div = document.createElement('div');
-    const ts = new Date(e.ts).toLocaleTimeString();
-    let cls = '';
-    if (e.line.startsWith('[spotiflac-dl]')) cls = 'engine';
-    else if (e.line.startsWith('WARNING')) cls = 'warn';
-    else if (e.line.startsWith('ERROR')) cls = 'err';
-    div.innerHTML = `<span class="ts">${ts}</span> <span class="${cls}">${escapeHtml(e.line)}</span>`;
-    frag.appendChild(div);
-  }
-  box.appendChild(frag);
-  logLines += lines.length;
-  while (box.childNodes.length > MAX_RENDERED) box.removeChild(box.firstChild);
-  $('logCount').textContent = `${Math.min(logLines, MAX_RENDERED)} lines`;
-  if (stickToBottom) box.scrollTop = box.scrollHeight;
+  logEntries.push(...lines);
+  if (logEntries.length > MAX_RENDERED) logEntries = logEntries.slice(-MAX_RENDERED);
+  renderLogs();
+}
+function resetLogs(note) {
+  logEntries = [];
+  logNote = note || '';
+  renderLogs();
 }
 function setPlaceholder(text) {
+  logEntries = [];
+  logNote = '';
   $('logbox').innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(text)}</div>`;
+  $('logCount').textContent = '0 lines';
 }
-$('clearLogs').onclick = () => { $('logbox').innerHTML = ''; logLines = 0; $('logCount').textContent = '0 lines'; };
+$('clearLogs').onclick = () => resetLogs('');
+$('logSearch').addEventListener('input', renderLogs);
+$('logLevel').addEventListener('change', renderLogs);
+
+// Export the full day (not just the rendered cap) as a text file.
+$('exportDay').onclick = async () => {
+  if (!currentDay) return;
+  try {
+    const res = await api(`/logs?date=${currentDay}&after=0&limit=1000000`);
+    if (!res.ok) { toast(`Export failed (${res.status})`); return; }
+    const body = await res.json();
+    const text = (body.lines || []).map(
+      (e) => `${new Date(e.ts).toISOString()}  ${e.line}`).join('\n');
+    const blob = new Blob([text || '(no logs for this day)'], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `instaplayer-logs-${currentDay}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+};
 
 // ---- day navigation -----------------------------------------------------
 function shiftDay(str, delta) {
@@ -348,8 +416,6 @@ function switchDay(day) {
   if (minDay && day < minDay) day = minDay;
   currentDay = day;
   logOffset = 0;
-  logLines = 0;
-  $('logCount').textContent = '0 lines';
   setPlaceholder('Loading…');
   updateLogControls();
   fetchLogs(true);
@@ -427,17 +493,8 @@ async function fetchLogs(initial) {
     if (!res.ok) return;
     const body = await res.json();
     if (initial) {
-      $('logbox').innerHTML = '';
-      logLines = 0;
-      $('logCount').textContent = '0 lines';
-      if (!body.exists || !(body.lines && body.lines.length)) {
-        setPlaceholder('No logs for this day.');
-      } else if (body.truncated) {
-        const note = document.createElement('div');
-        note.style.color = 'var(--dim)';
-        note.textContent = '… showing the latest lines of this day …';
-        $('logbox').appendChild(note);  // not #logPlaceholder, so it persists
-      }
+      logOffset = 0;
+      resetLogs(body.exists && body.truncated ? '… showing the latest lines of this day …' : '');
     }
     appendLogs(body.lines || []);
     if (body.nextOffset != null) logOffset = body.nextOffset;
