@@ -182,6 +182,14 @@ async def create_job(
     return job
 
 
+@app.get("/jobs", response_model=list[JobOut], dependencies=[Depends(require_auth)])
+def list_jobs(limit: int = 50, session: Session = Depends(get_session)) -> list[Job]:
+    """Recent jobs, newest first (admin dashboard history). Rows are ephemeral —
+    cancelled/deleted jobs are gone, finished ones vanish when the reaper runs."""
+    limit = max(1, min(limit, 200))
+    return list(session.scalars(select(Job).order_by(Job.updated_at.desc()).limit(limit)))
+
+
 @app.get("/jobs/{job_id}", response_model=JobOut, dependencies=[Depends(require_auth)])
 def get_job(job_id: str, session: Session = Depends(get_session)) -> Job:
     job = session.get(Job, job_id)

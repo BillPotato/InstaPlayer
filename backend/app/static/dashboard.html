@@ -51,6 +51,18 @@
   .sysgrid .sv { color: var(--text); word-break: break-word; }
   .diskbar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin-bottom: 12px; }
   .diskbar > div { height: 100%; background: var(--accent); }
+  #jobsBody { overflow-x: auto; }
+  .jobtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .jobtable th { text-align: left; color: var(--dim); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .jobtable td { padding: 5px 8px; border-bottom: 1px solid #202020; vertical-align: top; }
+  .jobtable td.good { color: var(--accent); }
+  .jobtable td.bad { color: var(--red); }
+  .jobtable .urlcell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .jobtable .errrow td { color: var(--red); font-size: 11px; padding-top: 0; }
+  .jobtable .actions { white-space: nowrap; text-align: right; }
+  .minibtn { background: var(--card-hi); color: var(--text); border: 0; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+  .minibtn.danger { color: var(--red); }
+  .minibtn:hover { background: #333; }
   #logbox {
     background: #0d0d0d; border: 1px solid var(--border); border-radius: 8px;
     font: 12px/1.45 ui-monospace, Consolas, "Courier New", monospace;
@@ -131,6 +143,11 @@
   <div class="card">
     <h2>Last job</h2>
     <div class="jobmeta" id="lastJob">—</div>
+  </div>
+
+  <div class="card">
+    <h2>Recent jobs</h2>
+    <div id="jobsBody"><span style="color:var(--dim);font-size:13px">Loading…</span></div>
   </div>
 
   <div class="card">
@@ -359,6 +376,54 @@ async function pollSystem() {
   } catch (e) { /* transient */ }
 }
 
+// ---- recent jobs --------------------------------------------------------
+let jobs = [];
+function jobStatusClass(s) {
+  return s === 'completed' ? 'good' : (s === 'failed' || s === 'cancelled') ? 'bad' : '';
+}
+function renderJobs() {
+  const box = $('jobsBody');
+  if (!jobs.length) { box.innerHTML = '<span style="color:var(--dim);font-size:13px">No recent jobs.</span>'; return; }
+  let html = '<table class="jobtable"><thead><tr><th>When</th><th>Status</th><th>Progress</th><th>URL</th><th></th></tr></thead><tbody>';
+  for (const j of jobs) {
+    const active = j.status === 'queued' || j.status === 'running';
+    const when = j.updated_at ? new Date(j.updated_at).toLocaleString() : '';
+    const prog = j.total ? `${j.completed}/${j.total}` : String(j.completed || 0);
+    const url = escapeHtml(j.spotify_url || '');
+    let actions = active ? `<button class="minibtn danger" data-cancel="${j.id}">Cancel</button>` : '';
+    actions += `<button class="minibtn" data-del="${j.id}">Delete</button>`;
+    html += `<tr><td>${escapeHtml(when)}</td><td class="${jobStatusClass(j.status)}">${escapeHtml(j.status)}</td>` +
+      `<td>${prog}</td><td class="urlcell" title="${url}">${url}</td><td class="actions">${actions}</td></tr>`;
+    if (j.error) html += `<tr class="errrow"><td colspan="5">${escapeHtml(j.error)}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+  box.querySelectorAll('[data-cancel]').forEach((b) => { b.onclick = () => jobAction('cancel', b.getAttribute('data-cancel')); });
+  box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => jobAction('delete', b.getAttribute('data-del')); });
+}
+async function jobAction(kind, id) {
+  const msg = kind === 'cancel' ? 'Cancel this job?' : 'Delete this job and its files?';
+  if (!confirm(msg)) return;
+  try {
+    const res = kind === 'cancel'
+      ? await api(`/jobs/${id}/cancel`, { method: 'POST' })
+      : await api(`/jobs/${id}`, { method: 'DELETE' });
+    toast(res.ok ? (kind === 'cancel' ? 'Cancelling…' : 'Deleted') : `Failed (${res.status})`);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollJobs(); pollStatus();
+}
+async function pollJobs() {
+  if (document.hidden || !apiKey) return;
+  try {
+    const res = await api('/jobs?limit=50');
+    if (!res.ok) return;
+    jobs = await res.json();
+    renderJobs();
+  } catch (e) { /* transient */ }
+}
+
 // ---- logs ---------------------------------------------------------------
 const MAX_RENDERED = 2000;
 let logEntries = [];           // current day's fetched lines (capped)
@@ -574,15 +639,17 @@ setInterval(() => {
 setInterval(() => { if (!document.hidden) fetchLogs(false); }, 2000);
 setInterval(() => { if (!document.hidden) refreshDays(); }, 60000);
 setInterval(() => { if (!document.hidden) pollSystem(); }, 15000);
+setInterval(() => { if (!document.hidden) pollJobs(); }, 8000);
 setInterval(tickCountdown, 1000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); pollSystem(); }
+  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); pollSystem(); pollJobs(); }
 });
 
 // ---- boot -------------------------------------------------------------------
 async function boot() {
   pollStatus();
   pollSystem();
+  pollJobs();
   await refreshDays();
   switchDay(currentDay || serverToday);
 }
