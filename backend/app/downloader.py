@@ -141,16 +141,39 @@ def installed_version() -> str | None:
     return binary_version()
 
 
-def _last_job_summary() -> dict | None:
+def _job_summaries() -> tuple[dict | None, dict | None]:
+    """(last, active) job summaries in one DB round-trip.
+
+    ``last`` is the most recently updated job of any status; ``active`` is the
+    newest queued/running one (usually the same row while a job runs) — the
+    dashboard shows its progress / downloads remaining."""
     with SessionLocal() as session:
         job = session.scalars(select(Job).order_by(Job.updated_at.desc())).first()
-        if job is None:
-            return None
-        return {
-            "status": job.status,
-            "error": job.error,
-            "updatedAt": job.updated_at.isoformat() if job.updated_at else None,
-        }
+        last = None
+        if job is not None:
+            last = {
+                "status": job.status,
+                "error": job.error,
+                "updatedAt": job.updated_at.isoformat() if job.updated_at else None,
+            }
+        active_row = job if job is not None and job.status in ("queued", "running") else (
+            session.scalars(
+                select(Job)
+                .where(Job.status.in_(["queued", "running"]))
+                .order_by(Job.updated_at.desc())
+            ).first()
+        )
+        active = None
+        if active_row is not None:
+            active = {
+                "id": active_row.id,
+                "status": active_row.status,
+                "total": active_row.total,
+                "completed": active_row.completed,
+                "current": active_row.current,
+                "spotifyUrl": active_row.spotify_url,
+            }
+        return last, active
 
 
 async def status(settings: Settings, active_jobs: bool) -> dict:
@@ -160,6 +183,7 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
     # No package registry to compare against now — the engine is a vendored
     # binary, kept current with scripts/update-spotiflac.sh. Keep the keys for
     # frontend compatibility; there's simply never an "update available" hint.
+    last_job, active_job = await loop.run_in_executor(None, _job_summaries)
     return {
         "importable": importable,
         "importError": import_error,
@@ -169,7 +193,8 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
         "services": list(settings.default_services),
         "quality": settings.quality,
         "activeJobs": active_jobs,
-        "lastJob": await loop.run_in_executor(None, _last_job_summary),
+        "lastJob": last_job,
+        "activeJob": active_job,
         "lastProbe": _last_probe,
         "nextProbeAt": (
             datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()
@@ -231,10 +256,12 @@ async def probe(settings: Settings) -> dict:
 
         global _last_probe_epoch, _next_probe_at
         now = time.time()
+        cooldown_until: str | None = None
         if not ok and cooldown:
             # On cooldown: don't re-probe until it expires (+ a small grace).
             wait = min(int(cooldown), _COOLDOWN_MAX_SECONDS) + _COOLDOWN_BUFFER_SECONDS
             _next_probe_at = now + wait
+            cooldown_until = datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()
             detail = f"On cooldown — retrying in ~{max(1, round(wait / 60))} min. {detail or ''}".strip()
         else:
             _next_probe_at = now + _freshness_window_seconds(settings)
@@ -243,6 +270,10 @@ async def probe(settings: Settings) -> dict:
             "detail": detail,
             "at": datetime.now(timezone.utc).isoformat(),
             "elapsedSeconds": round(time.monotonic() - started, 1),
+            # Set only when the failure was an upstream cooldown — lets the
+            # dashboard show "on cooldown until X" vs a routine next check.
+            # Rides along in last_probe.json via _persist_probe for free.
+            "cooldownUntil": cooldown_until,
         }
         _last_probe_epoch = now
         _persist_probe(settings)  # survive restarts within the freshness / cooldown window

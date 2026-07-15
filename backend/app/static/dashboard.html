@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InstaPlayer — Admin</title>
+<style>
+  :root {
+    --bg: #121212; --card: #181818; --card-hi: #242424;
+    --text: #ffffff; --dim: #a7a7a7; --accent: #1DB954; --red: #e74c3c;
+    --amber: #e5a50a; --border: #2a2a2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh; padding: 24px 16px 48px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 20px; font-weight: 800; }
+  .light { width: 14px; height: 14px; border-radius: 50%; background: var(--dim); flex: none; }
+  .light.green { background: var(--accent); }
+  .light.red { background: var(--red); }
+  .light.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .meta { color: var(--dim); font-size: 12px; flex: 1; min-width: 200px; }
+  .keylink { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .keylink:hover { color: var(--text); }
+  .card { background: var(--card); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #000; border: 0; border-radius: 20px;
+    padding: 9px 20px; font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.4; cursor: default; filter: none; }
+  button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .statusline { font-size: 13px; color: var(--dim); margin-top: 10px; }
+  .statusline .bad { color: var(--red); }
+  .statusline .good { color: var(--accent); }
+  .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
+  .countdown.cooldown { color: var(--red); font-weight: 600; }
+  .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
+  .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
+  .jobmeta b { color: var(--text); }
+  #logbox {
+    background: #0d0d0d; border: 1px solid var(--border); border-radius: 8px;
+    font: 12px/1.45 ui-monospace, Consolas, "Courier New", monospace;
+    height: 340px; overflow-y: auto; padding: 10px 12px; white-space: pre-wrap;
+    word-break: break-all; color: #c8c8c8;
+  }
+  #logbox .ts { color: #5f5f5f; }
+  #logbox .engine { color: #8ab4f8; }
+  #logbox .warn { color: var(--amber); }
+  #logbox .err { color: var(--red); }
+  .logtools { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .logtools small { color: var(--dim); }
+  .logtools a { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  /* key overlay */
+  #keyform {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none;
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  #keyform.show { display: flex; }
+  #keyform .box { background: var(--card); border-radius: 12px; padding: 24px; width: 320px; }
+  #keyform h2 { font-size: 16px; margin-bottom: 6px; color: var(--text); text-transform: none; letter-spacing: 0; }
+  #keyform p { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+  #keyform input {
+    width: 100%; background: var(--card-hi); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 10px 12px; font-size: 14px; margin-bottom: 12px;
+  }
+  #keyform .err-msg { color: var(--red); font-size: 12px; margin-bottom: 10px; display: none; }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--card-hi); color: var(--text); border-radius: 8px; padding: 10px 18px;
+    font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="light" id="light"></div>
+    <h1>InstaPlayer Admin</h1>
+    <div class="meta" id="meta">connecting…</div>
+    <span class="keylink" id="changekey">change key</span>
+  </header>
+
+  <div class="card">
+    <h2>Download engine</h2>
+    <div class="row">
+      <button id="probeBtn" disabled>Force probe</button>
+      <span id="probeState" style="font-size:13px;color:var(--dim)"></span>
+    </div>
+    <div class="countdown" id="countdown"></div>
+    <div class="statusline" id="probeLine"></div>
+  </div>
+
+  <div class="card" id="jobCard" style="display:none">
+    <h2>Active download</h2>
+    <div class="jobmeta" id="jobTitle"></div>
+    <div class="bar"><div id="jobBar"></div></div>
+    <div class="jobmeta" id="jobCounts"></div>
+    <div class="jobmeta" id="jobCurrent" style="margin-top:4px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="danger" id="cancelBtn">Cancel job</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Last job</h2>
+    <div class="jobmeta" id="lastJob">—</div>
+  </div>
+
+  <div class="card">
+    <h2>Logs</h2>
+    <div id="logbox"></div>
+    <div class="logtools">
+      <small id="logCount">0 lines</small>
+      <a id="clearLogs">clear view</a>
+    </div>
+  </div>
+</div>
+
+<div id="keyform">
+  <div class="box">
+    <h2>API key</h2>
+    <p>Enter this server's API key (the same one the app uses).</p>
+    <div class="err-msg" id="keyErr">Key was rejected — try again.</div>
+    <input type="password" id="keyInput" placeholder="API key" autocomplete="off">
+    <button id="keySave" style="width:100%">Save</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const KEY_STORAGE = 'instaplayer_api_key';
+
+let apiKey = localStorage.getItem(KEY_STORAGE) || '';
+let status = null;          // last /downloader/status body
+let statusFailed = false;   // last status fetch errored (unreachable / bad key)
+let lastSeq = 0;            // /logs incremental cursor
+let logLines = 0;
+let toastTimer = null;
+
+// ---- auth ------------------------------------------------------------
+function showKeyForm(rejected) {
+  $('keyErr').style.display = rejected ? 'block' : 'none';
+  $('keyform').classList.add('show');
+  $('keyInput').focus();
+}
+$('keySave').onclick = () => {
+  const v = $('keyInput').value.trim();
+  if (!v) return;
+  apiKey = v;
+  localStorage.setItem(KEY_STORAGE, v);
+  $('keyform').classList.remove('show');
+  $('keyInput').value = '';
+  pollStatus(); pollLogs();
+};
+$('keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('keySave').onclick(); });
+$('changekey').onclick = () => showKeyForm(false);
+
+async function api(path, opts) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { ...(opts && opts.headers), Authorization: 'Bearer ' + apiKey },
+  });
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem(KEY_STORAGE);
+    showKeyForm(true);
+    throw new Error('unauthorized');
+  }
+  return res;
+}
+
+function toast(msg) {
+  $('toast').textContent = msg;
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3500);
+}
+
+// ---- rendering ---------------------------------------------------------
+function fmtDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
+function render() {
+  const light = $('light');
+  light.classList.remove('green', 'red', 'pulse');
+  if (statusFailed || !status) {
+    light.classList.add('red');
+    $('meta').textContent = statusFailed ? 'server unreachable' : 'connecting…';
+    $('probeBtn').disabled = true;
+    return;
+  }
+  const probing = !!status.probing;
+  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  const probeOk = status.lastProbe ? status.lastProbe.ok : null;
+  const bad = !status.importable || cooldownUntil || probeOk === false;
+  light.classList.add(bad ? 'red' : 'green');
+  if (probing) light.classList.add('pulse');
+
+  $('meta').textContent =
+    `${status.version || 'engine ?'} · sources: ${(status.services || []).join(', ')} · quality: ${status.quality || '?'}`;
+
+  // probe card
+  $('probeBtn').disabled = probing || !!status.activeJob || !status.importable;
+  $('probeState').textContent = probing ? 'Probing — downloads one sample track, can take minutes…'
+    : status.activeJob ? 'Disabled while a job is running'
+    : !status.importable ? (status.importError || 'Engine unavailable') : '';
+
+  const lp = status.lastProbe;
+  $('probeLine').innerHTML = lp
+    ? `Last check: <span class="${lp.ok ? 'good' : 'bad'}">${lp.ok ? 'passed' : 'failed'}</span>` +
+      ` — ${new Date(lp.at).toLocaleString()} (${Math.round(lp.elapsedSeconds)}s)` +
+      (lp.detail ? `<br>${escapeHtml(lp.detail)}` : '')
+    : 'No check has run yet.';
+
+  // active job card
+  const job = status.activeJob;
+  $('jobCard').style.display = job ? '' : 'none';
+  if (job) {
+    const total = job.total || 0, done = job.completed || 0;
+    $('jobTitle').innerHTML = `<b>${escapeHtml(job.spotifyUrl || '')}</b>`;
+    $('jobBar').style.width = total > 0 ? `${Math.min(100, Math.round(done / total * 100))}%` : '0%';
+    $('jobCounts').textContent = total > 0
+      ? `${done} of ${total} — ${Math.max(0, total - done)} remaining`
+      : `${done} downloaded (total unknown yet)`;
+    $('jobCurrent').textContent = job.current ? `Fetching: ${job.current}` : '';
+    $('cancelBtn').dataset.jobId = job.id;
+  }
+
+  const lj = status.lastJob;
+  $('lastJob').innerHTML = lj
+    ? `<span class="${lj.status === 'completed' ? 'good' : lj.status === 'failed' ? 'bad' : ''}">${lj.status}</span>` +
+      (lj.updatedAt ? ` — ${new Date(lj.updatedAt).toLocaleString()}` : '') +
+      (lj.error ? `<br>${escapeHtml(lj.error)}` : '')
+    : '—';
+}
+
+// countdown line ticks locally every second between polls
+function tickCountdown() {
+  const el = $('countdown');
+  if (!status) { el.textContent = ''; return; }
+  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  const target = cooldownUntil || status.nextProbeAt;
+  if (!target) { el.textContent = ''; el.classList.remove('cooldown'); return; }
+  const ms = Date.parse(target) - Date.now();
+  if (cooldownUntil) {
+    el.classList.add('cooldown');
+    el.textContent = ms > 0 ? `On cooldown — ${fmtDuration(ms)} until retry` : 'Cooldown over — retrying soon';
+  } else {
+    el.classList.remove('cooldown');
+    el.textContent = ms > 0 ? `Next check in ${fmtDuration(ms)}` : 'Next check due now';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---- logs ---------------------------------------------------------------
+const MAX_RENDERED = 500;
+function appendLogs(lines) {
+  if (!lines.length) return;
+  const box = $('logbox');
+  const stickToBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const frag = document.createDocumentFragment();
+  for (const e of lines) {
+    const div = document.createElement('div');
+    const ts = new Date(e.ts).toLocaleTimeString();
+    let cls = '';
+    if (e.line.startsWith('[spotiflac-dl]')) cls = 'engine';
+    else if (e.line.startsWith('WARNING')) cls = 'warn';
+    else if (e.line.startsWith('ERROR')) cls = 'err';
+    div.innerHTML = `<span class="ts">${ts}</span> <span class="${cls}">${escapeHtml(e.line)}</span>`;
+    frag.appendChild(div);
+  }
+  box.appendChild(frag);
+  logLines += lines.length;
+  while (box.childNodes.length > MAX_RENDERED) box.removeChild(box.firstChild);
+  $('logCount').textContent = `${Math.min(logLines, MAX_RENDERED)} lines`;
+  if (stickToBottom) box.scrollTop = box.scrollHeight;
+}
+$('clearLogs').onclick = () => { $('logbox').innerHTML = ''; logLines = 0; $('logCount').textContent = '0 lines'; };
+
+// ---- actions --------------------------------------------------------------
+$('probeBtn').onclick = async () => {
+  $('probeBtn').disabled = true;
+  try {
+    const res = await api('/downloader/probe?force=true', { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast(body.detail || `Probe failed (${res.status})`);
+    } else {
+      toast('Probe finished — see result above');
+    }
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollStatus();
+};
+
+$('cancelBtn').onclick = async () => {
+  const id = $('cancelBtn').dataset.jobId;
+  if (!id || !confirm('Cancel the running download job?')) return;
+  try {
+    const res = await api(`/jobs/${id}/cancel`, { method: 'POST' });
+    toast(res.ok ? 'Cancelling job…' : `Cancel failed (${res.status})`);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollStatus();
+};
+
+// ---- polling ---------------------------------------------------------------
+async function pollStatus() {
+  if (document.hidden || !apiKey) return;
+  try {
+    const res = await api('/downloader/status');
+    if (!res.ok) throw new Error(String(res.status));
+    status = await res.json();
+    statusFailed = false;
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    statusFailed = true;
+  }
+  render();
+  tickCountdown();
+}
+
+async function pollLogs() {
+  if (document.hidden || !apiKey) return;
+  try {
+    const res = await api(`/logs?after=${lastSeq}`);
+    if (!res.ok) return;
+    const body = await res.json();
+    appendLogs(body.lines || []);
+    lastSeq = body.lastSeq || lastSeq;
+  } catch (e) {
+    /* transient; next poll retries */
+  }
+}
+
+// status: 10s normally, 3s while probing or a job is active; logs: 2s.
+let lastStatusPoll = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  const busy = status && (status.probing || status.activeJob);
+  const interval = busy ? 3000 : 10000;
+  if (Date.now() - lastStatusPoll >= interval) {
+    lastStatusPoll = Date.now();
+    pollStatus();
+  }
+}, 1000);
+setInterval(pollLogs, 2000);
+setInterval(tickCountdown, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); pollLogs(); }
+});
+
+// ---- boot -------------------------------------------------------------------
+if (!apiKey) showKeyForm(false);
+else { pollStatus(); pollLogs(); }
+</script>
+</body>
+</html>

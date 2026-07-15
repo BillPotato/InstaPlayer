@@ -13,11 +13,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import downloader
+from . import downloader, logbuffer
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
@@ -53,6 +53,7 @@ def _fail_orphaned_jobs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN001
+    logbuffer.install()  # capture app logs for GET /logs (admin dashboard)
     init_db()
     _fail_orphaned_jobs()
     manager = get_job_manager()
@@ -83,6 +84,27 @@ async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# The admin dashboard page is public (it renders nothing sensitive on its
+# own); every data call it makes hits the Bearer-authed endpoints, and the
+# page prompts for the API key on first load / 401.
+_DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
+
+
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+def admin_dashboard() -> HTMLResponse:
+    return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
+
+
+@app.get("/logs", dependencies=[Depends(require_auth)])
+def get_logs(after: int = 0, limit: int = 500) -> dict:
+    """Recent server log lines (in-memory ring buffer, admin dashboard).
+
+    Pass ``after=<lastSeq>`` to fetch only lines newer than the previous
+    response — makes a tight poll near-free."""
+    lines = logbuffer.since(after, limit)
+    return {"lines": lines, "lastSeq": lines[-1]["seq"] if lines else after}
 
 
 # --------------------------------------------------------------------------
