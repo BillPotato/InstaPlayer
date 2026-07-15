@@ -10,6 +10,7 @@ import asyncio
 import logging
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import downloader, logbuffer
+from . import downloader, logbuffer, sysinfo
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
@@ -27,6 +28,9 @@ from .models import Job
 from .schemas import JobCreate, JobOut, Manifest
 
 log = logging.getLogger(__name__)
+
+# Process start time, for the dashboard's uptime readout.
+_STARTED_AT = datetime.now(timezone.utc)
 
 
 def _fail_orphaned_jobs() -> None:
@@ -97,6 +101,14 @@ _DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 def admin_dashboard() -> HTMLResponse:
     return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
+
+
+@app.get("/admin/system", dependencies=[Depends(require_auth)])
+async def admin_system(settings: Settings = Depends(get_settings)) -> dict:
+    """Storage/health report for the dashboard (disk, job store, logs, uptime,
+    effective config). Disk IO runs off the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, sysinfo.system_report, settings, _STARTED_AT)
 
 
 @app.get("/logs/days", dependencies=[Depends(require_auth)])

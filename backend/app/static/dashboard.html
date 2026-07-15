@@ -46,6 +46,11 @@
   .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
   .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
   .jobmeta b { color: var(--text); }
+  .sysgrid { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; font-size: 13px; }
+  .sysgrid .sk { color: var(--dim); white-space: nowrap; }
+  .sysgrid .sv { color: var(--text); word-break: break-word; }
+  .diskbar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin-bottom: 12px; }
+  .diskbar > div { height: 100%; background: var(--accent); }
   #logbox {
     background: #0d0d0d; border: 1px solid var(--border); border-radius: 8px;
     font: 12px/1.45 ui-monospace, Consolas, "Courier New", monospace;
@@ -126,6 +131,11 @@
   <div class="card">
     <h2>Last job</h2>
     <div class="jobmeta" id="lastJob">—</div>
+  </div>
+
+  <div class="card">
+    <h2>System</h2>
+    <div id="sysBody"><span style="color:var(--dim);font-size:13px">Loading…</span></div>
   </div>
 
   <div class="card">
@@ -298,6 +308,55 @@ function tickCountdown() {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---- system / storage ---------------------------------------------------
+let system = null;
+function fmtBytes(n) {
+  if (n == null) return '?';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i > 0 && v < 10 ? 1 : 0)} ${u[i]}`;
+}
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function renderSystem() {
+  if (!system) return;
+  const c = system.config, disk = system.disk;
+  const pct = disk && disk.total ? Math.round(disk.used / disk.total * 100) : 0;
+  const rows = [
+    ['Uptime', fmtUptime(system.uptimeSeconds)],
+    ['Disk', disk ? `${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${fmtBytes(disk.free)} free)` : '—'],
+    ['Job store', `${fmtBytes(system.jobStore.bytes)} · ${system.jobStore.activeDirs} active dir(s)`],
+    ['Logs', `${fmtBytes(system.logs.bytes)} · ${system.logs.days} day(s)`],
+    ['Sources', c.services.join(', ')],
+    ['Quality', c.quality],
+    ['Retries', String(c.trackMaxRetries)],
+    ['Probe every', c.probeIntervalMinutes > 0 ? `${c.probeIntervalMinutes} min` : 'off'],
+    ['Job retention', `${c.jobRetentionHours} h`],
+    ['Log retention', c.logRetentionDays > 0 ? `${c.logRetentionDays} day(s)` : 'forever'],
+    ['Qobuz token', c.qobuzTokenSet ? 'set' : '—'],
+    ['Spooty fallback', c.spootyEnabled ? 'on' : 'off'],
+  ];
+  let html = disk ? `<div class="diskbar"><div style="width:${pct}%"></div></div>` : '';
+  html += '<div class="sysgrid">';
+  for (const [k, v] of rows) html += `<div class="sk">${k}</div><div class="sv">${escapeHtml(v)}</div>`;
+  html += '</div>';
+  $('sysBody').innerHTML = html;
+}
+async function pollSystem() {
+  if (document.hidden || !apiKey) return;
+  try {
+    const res = await api('/admin/system');
+    if (!res.ok) return;
+    system = await res.json();
+    renderSystem();
+  } catch (e) { /* transient */ }
 }
 
 // ---- logs ---------------------------------------------------------------
@@ -514,14 +573,16 @@ setInterval(() => {
 }, 1000);
 setInterval(() => { if (!document.hidden) fetchLogs(false); }, 2000);
 setInterval(() => { if (!document.hidden) refreshDays(); }, 60000);
+setInterval(() => { if (!document.hidden) pollSystem(); }, 15000);
 setInterval(tickCountdown, 1000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); }
+  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); pollSystem(); }
 });
 
 // ---- boot -------------------------------------------------------------------
 async function boot() {
   pollStatus();
+  pollSystem();
   await refreshDays();
   switchDay(currentDay || serverToday);
 }
