@@ -42,6 +42,10 @@
   .statusline .good { color: var(--accent); }
   .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
   .countdown.cooldown { color: var(--red); font-weight: 600; }
+  .sparks { margin-top: 6px; line-height: 1; }
+  .spark { display: inline-block; width: 7px; height: 14px; border-radius: 2px; margin-right: 2px; background: var(--card-hi); vertical-align: middle; }
+  .spark.ok { background: #22C55E; }
+  .spark.bad { background: var(--red); }
   .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
   .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
   .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
@@ -128,6 +132,7 @@
     </div>
     <div class="countdown" id="countdown"></div>
     <div class="statusline" id="probeLine"></div>
+    <div class="statusline" id="probeHistory" style="margin-top:10px"></div>
   </div>
 
   <div class="card" id="jobCard" style="display:none">
@@ -376,6 +381,27 @@ async function pollSystem() {
   } catch (e) { /* transient */ }
 }
 
+// ---- probe reliability history -----------------------------------------
+let probeHist = null;
+function renderHistory() {
+  const el = $('probeHistory');
+  if (!probeHist || !probeHist.total) { el.innerHTML = ''; return; }
+  const recent = probeHist.history.slice(-40);
+  const bars = recent.map((x) =>
+    `<span class="spark ${x.ok ? 'ok' : 'bad'}" title="${escapeHtml(new Date(x.at).toLocaleString())} — ${x.ok ? 'ok' : 'failed'}"></span>`
+  ).join('');
+  el.innerHTML = `Worked ${probeHist.okCount} of ${probeHist.total} recent checks<div class="sparks">${bars}</div>`;
+}
+async function pollHistory() {
+  if (document.hidden || !apiKey) return;
+  try {
+    const res = await api('/downloader/history');
+    if (!res.ok) return;
+    probeHist = await res.json();
+    renderHistory();
+  } catch (e) { /* transient */ }
+}
+
 // ---- recent jobs --------------------------------------------------------
 let jobs = [];
 function jobStatusClass(s) {
@@ -576,7 +602,7 @@ $('probeBtn').onclick = async () => {
   } catch (e) {
     if (e.message !== 'unauthorized') toast('Could not reach server');
   }
-  pollStatus();
+  pollStatus(); pollHistory();
 };
 
 $('cancelBtn').onclick = async () => {
@@ -640,9 +666,10 @@ setInterval(() => { if (!document.hidden) fetchLogs(false); }, 2000);
 setInterval(() => { if (!document.hidden) refreshDays(); }, 60000);
 setInterval(() => { if (!document.hidden) pollSystem(); }, 15000);
 setInterval(() => { if (!document.hidden) pollJobs(); }, 8000);
+setInterval(() => { if (!document.hidden) pollHistory(); }, 30000);
 setInterval(tickCountdown, 1000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); pollSystem(); pollJobs(); }
+  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); fetchLogs(false); pollSystem(); pollJobs(); pollHistory(); }
 });
 
 // ---- boot -------------------------------------------------------------------
@@ -650,6 +677,7 @@ async function boot() {
   pollStatus();
   pollSystem();
   pollJobs();
+  pollHistory();
   await refreshDays();
   switchDay(currentDay || serverToday);
 }

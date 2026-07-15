@@ -166,6 +166,12 @@ async def downloader_probe(
     return await downloader.probe_or_cached(settings, force)
 
 
+@app.get("/downloader/history", dependencies=[Depends(require_auth)])
+def downloader_history() -> dict:
+    """Recent probe pass/fail outcomes for the dashboard's reliability timeline."""
+    return downloader.probe_history()
+
+
 # --------------------------------------------------------------------------
 # Jobs
 # --------------------------------------------------------------------------
