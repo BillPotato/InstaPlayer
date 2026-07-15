@@ -30,6 +30,9 @@ cd backend
 cp .env.example .env          # set API_KEY to a long random string
 docker compose up --build
 # API is now on http://localhost:8000  (docs at /docs)
+# Admin dashboard at http://localhost:8000/admin — status light, force-probe
+# button, live logs, active-download progress + cancel, cooldown countdown.
+# It asks for your API_KEY on first load (stored in the browser).
 ```
 
 Resolve + download a playlist:
@@ -71,6 +74,7 @@ Every variable is optional except `API_KEY`.
 | `PROBE_TIMEOUT_SECONDS` | `240` | Hard cap on a probe run |
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
 | `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` engine binary. Unset = resolve it from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
+| `LOG_RETENTION_DAYS` | `30` | How many days of per-day log files (`data/logs/YYYY-MM-DD.jsonl`, browsable in the `/admin` dashboard) to keep; older ones are pruned on startup. `0` = keep forever |
 
 The engine is the vendored **SpotiFLAC Go binary** (`backend/spotiflac-go/`), built from
 source into the image — not a pip package. To pull a newer upstream, run

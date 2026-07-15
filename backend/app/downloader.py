@@ -58,9 +58,49 @@ _COOLDOWN_MAX_SECONDS = 3 * 3600
 # The probe cache is mirrored here, inside DATA_DIR (next to the job store).
 _PROBE_CACHE_NAME = "last_probe.json"
 
+# Rolling history of recent probe outcomes (for the dashboard's reliability
+# timeline). In memory + mirrored to disk; bounded.
+_probe_history: list[dict] = []
+_PROBE_HISTORY_MAX = 50
+_PROBE_HISTORY_NAME = "probe_history.json"
+
 
 def _probe_cache_path(settings: Settings) -> Path:
     return settings.data_dir / _PROBE_CACHE_NAME
+
+
+def _history_path(settings: Settings) -> Path:
+    return settings.data_dir / _PROBE_HISTORY_NAME
+
+
+def _persist_history(settings: Settings) -> None:
+    try:
+        path = _history_path(settings)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_probe_history), encoding="utf-8")
+    except Exception:  # pragma: no cover - advisory
+        log.debug("Could not persist probe history", exc_info=True)
+
+
+def _load_history(settings: Settings) -> None:
+    global _probe_history
+    if _probe_history:
+        return
+    try:
+        data = json.loads(_history_path(settings).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    except Exception:  # pragma: no cover - corrupt cache
+        log.debug("Could not read probe history", exc_info=True)
+        return
+    if isinstance(data, list):
+        _probe_history = [x for x in data if isinstance(x, dict) and "ok" in x][-_PROBE_HISTORY_MAX:]
+
+
+def probe_history() -> dict:
+    """Recent probe outcomes + a pass count, for the dashboard timeline."""
+    ok_count = sum(1 for x in _probe_history if x.get("ok"))
+    return {"history": list(_probe_history), "okCount": ok_count, "total": len(_probe_history)}
 
 
 def _persist_probe(settings: Settings) -> None:
@@ -83,6 +123,7 @@ def load_persisted_probe(settings: Settings) -> None:
     result (or an active cooldown) suppresses an immediate re-probe after a
     restart. No-op if the file is missing/unreadable or a result is in memory."""
     global _last_probe, _last_probe_epoch, _next_probe_at
+    _load_history(settings)  # independent of the last-probe cache below
     if _last_probe is not None:
         return
     try:
@@ -141,16 +182,39 @@ def installed_version() -> str | None:
     return binary_version()
 
 
-def _last_job_summary() -> dict | None:
+def _job_summaries() -> tuple[dict | None, dict | None]:
+    """(last, active) job summaries in one DB round-trip.
+
+    ``last`` is the most recently updated job of any status; ``active`` is the
+    newest queued/running one (usually the same row while a job runs) — the
+    dashboard shows its progress / downloads remaining."""
     with SessionLocal() as session:
         job = session.scalars(select(Job).order_by(Job.updated_at.desc())).first()
-        if job is None:
-            return None
-        return {
-            "status": job.status,
-            "error": job.error,
-            "updatedAt": job.updated_at.isoformat() if job.updated_at else None,
-        }
+        last = None
+        if job is not None:
+            last = {
+                "status": job.status,
+                "error": job.error,
+                "updatedAt": job.updated_at.isoformat() if job.updated_at else None,
+            }
+        active_row = job if job is not None and job.status in ("queued", "running") else (
+            session.scalars(
+                select(Job)
+                .where(Job.status.in_(["queued", "running"]))
+                .order_by(Job.updated_at.desc())
+            ).first()
+        )
+        active = None
+        if active_row is not None:
+            active = {
+                "id": active_row.id,
+                "status": active_row.status,
+                "total": active_row.total,
+                "completed": active_row.completed,
+                "current": active_row.current,
+                "spotifyUrl": active_row.spotify_url,
+            }
+        return last, active
 
 
 async def status(settings: Settings, active_jobs: bool) -> dict:
@@ -160,6 +224,7 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
     # No package registry to compare against now — the engine is a vendored
     # binary, kept current with scripts/update-spotiflac.sh. Keep the keys for
     # frontend compatibility; there's simply never an "update available" hint.
+    last_job, active_job = await loop.run_in_executor(None, _job_summaries)
     return {
         "importable": importable,
         "importError": import_error,
@@ -169,7 +234,8 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
         "services": list(settings.default_services),
         "quality": settings.quality,
         "activeJobs": active_jobs,
-        "lastJob": await loop.run_in_executor(None, _last_job_summary),
+        "lastJob": last_job,
+        "activeJob": active_job,
         "lastProbe": _last_probe,
         "nextProbeAt": (
             datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()
@@ -231,10 +297,12 @@ async def probe(settings: Settings) -> dict:
 
         global _last_probe_epoch, _next_probe_at
         now = time.time()
+        cooldown_until: str | None = None
         if not ok and cooldown:
             # On cooldown: don't re-probe until it expires (+ a small grace).
             wait = min(int(cooldown), _COOLDOWN_MAX_SECONDS) + _COOLDOWN_BUFFER_SECONDS
             _next_probe_at = now + wait
+            cooldown_until = datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()
             detail = f"On cooldown — retrying in ~{max(1, round(wait / 60))} min. {detail or ''}".strip()
         else:
             _next_probe_at = now + _freshness_window_seconds(settings)
@@ -243,9 +311,16 @@ async def probe(settings: Settings) -> dict:
             "detail": detail,
             "at": datetime.now(timezone.utc).isoformat(),
             "elapsedSeconds": round(time.monotonic() - started, 1),
+            # Set only when the failure was an upstream cooldown — lets the
+            # dashboard show "on cooldown until X" vs a routine next check.
+            # Rides along in last_probe.json via _persist_probe for free.
+            "cooldownUntil": cooldown_until,
         }
         _last_probe_epoch = now
         _persist_probe(settings)  # survive restarts within the freshness / cooldown window
+        _probe_history.append({"at": _last_probe["at"], "ok": ok})
+        del _probe_history[:-_PROBE_HISTORY_MAX]  # keep the last N
+        _persist_history(settings)
         log.info(
             "Downloader probe finished: ok=%s cooldown=%ss detail=%s",
             ok, cooldown, detail,

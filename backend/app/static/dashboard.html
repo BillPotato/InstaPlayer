@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InstaPlayer — Admin</title>
+<style>
+  :root {
+    --bg: #121212; --card: #181818; --card-hi: #242424;
+    --text: #ffffff; --dim: #a7a7a7; --accent: #1DB954; --red: #e74c3c;
+    --amber: #e5a50a; --border: #2a2a2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh; padding: 24px 16px 48px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 20px; font-weight: 800; }
+  .light { width: 14px; height: 14px; border-radius: 50%; background: var(--dim); flex: none; }
+  .light.green { background: var(--accent); }
+  .light.red { background: var(--red); }
+  .light.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .meta { color: var(--dim); font-size: 12px; flex: 1; min-width: 200px; }
+  .keylink { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .keylink:hover { color: var(--text); }
+  .card { background: var(--card); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #000; border: 0; border-radius: 20px;
+    padding: 9px 20px; font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.4; cursor: default; filter: none; }
+  button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .statusline { font-size: 13px; color: var(--dim); margin-top: 10px; }
+  .statusline .bad { color: var(--red); }
+  .statusline .good { color: var(--accent); }
+  .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
+  .countdown.cooldown { color: var(--red); font-weight: 600; }
+  .sparks { margin-top: 6px; line-height: 1; }
+  .spark { display: inline-block; width: 7px; height: 14px; border-radius: 2px; margin-right: 2px; background: var(--card-hi); vertical-align: middle; }
+  .spark.ok { background: #22C55E; }
+  .spark.bad { background: var(--red); }
+  .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
+  .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
+  .jobmeta b { color: var(--text); }
+  .sysgrid { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; font-size: 13px; }
+  .sysgrid .sk { color: var(--dim); white-space: nowrap; }
+  .sysgrid .sv { color: var(--text); word-break: break-word; }
+  .diskbar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin-bottom: 12px; }
+  .diskbar > div { height: 100%; background: var(--accent); }
+  #jobsBody { overflow-x: auto; }
+  .jobtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .jobtable th { text-align: left; color: var(--dim); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .jobtable td { padding: 5px 8px; border-bottom: 1px solid #202020; vertical-align: top; }
+  .jobtable td.good { color: var(--accent); }
+  .jobtable td.bad { color: var(--red); }
+  .jobtable .urlcell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .jobtable .errrow td { color: var(--red); font-size: 11px; padding-top: 0; }
+  .jobtable .actions { white-space: nowrap; text-align: right; }
+  .minibtn { background: var(--card-hi); color: var(--text); border: 0; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+  .minibtn.danger { color: var(--red); }
+  .minibtn:hover { background: #333; }
+  #logbox {
+    background: #0d0d0d; border: 1px solid var(--border); border-radius: 8px;
+    font: 12px/1.45 ui-monospace, Consolas, "Courier New", monospace;
+    height: 340px; overflow-y: auto; padding: 10px 12px; white-space: pre-wrap;
+    word-break: break-all; color: #c8c8c8;
+  }
+  #logbox .ts { color: #5f5f5f; }
+  #logbox .engine { color: #8ab4f8; }
+  #logbox .warn { color: var(--amber); }
+  #logbox .err { color: var(--red); }
+  .logtools { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .logtools small { color: var(--dim); }
+  .logtools a { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .logbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .navbtn {
+    background: var(--card-hi); color: var(--text); border: 0; border-radius: 6px;
+    padding: 6px 13px; font-size: 15px; line-height: 1; cursor: pointer;
+  }
+  .navbtn:hover:not(:disabled) { background: #333; filter: none; }
+  .navbtn:disabled { opacity: 0.3; cursor: default; }
+  .logbar input[type=date], .logbar input[type=text], .logbar select {
+    background: var(--card-hi); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; color-scheme: dark;
+  }
+  .logbar input[type=text] { flex: 1; min-width: 140px; }
+  #dayLabel { color: var(--dim); font-size: 12px; }
+  /* key overlay */
+  #keyform {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none;
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  #keyform.show { display: flex; }
+  #keyform .box { background: var(--card); border-radius: 12px; padding: 24px; width: 320px; }
+  #keyform h2 { font-size: 16px; margin-bottom: 6px; color: var(--text); text-transform: none; letter-spacing: 0; }
+  #keyform p { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+  #keyform input {
+    width: 100%; background: var(--card-hi); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 10px 12px; font-size: 14px; margin-bottom: 12px;
+  }
+  #keyform .err-msg { color: var(--red); font-size: 12px; margin-bottom: 10px; display: none; }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--card-hi); color: var(--text); border-radius: 8px; padding: 10px 18px;
+    font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="light" id="light"></div>
+    <h1>InstaPlayer Admin</h1>
+    <div class="meta" id="meta">connecting…</div>
+    <span id="updatedAt" style="color:var(--dim);font-size:12px"></span>
+    <button class="navbtn" id="refreshAll" title="Refresh everything">&#8635; Refresh</button>
+    <span class="keylink" id="changekey">change key</span>
+  </header>
+
+  <div class="card">
+    <h2>Download engine</h2>
+    <div class="row">
+      <button id="probeBtn" disabled>Force probe</button>
+      <span id="probeState" style="font-size:13px;color:var(--dim)"></span>
+    </div>
+    <div class="countdown" id="countdown"></div>
+    <div class="statusline" id="probeLine"></div>
+    <div class="statusline" id="probeHistory" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="jobCard" style="display:none">
+    <h2>Active download</h2>
+    <div class="jobmeta" id="jobTitle"></div>
+    <div class="bar"><div id="jobBar"></div></div>
+    <div class="jobmeta" id="jobCounts"></div>
+    <div class="jobmeta" id="jobCurrent" style="margin-top:4px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="danger" id="cancelBtn">Cancel job</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Last job</h2>
+    <div class="jobmeta" id="lastJob">—</div>
+  </div>
+
+  <div class="card">
+    <h2>Recent jobs</h2>
+    <div id="jobsBody"><span style="color:var(--dim);font-size:13px">Loading…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>System</h2>
+    <div id="sysBody"><span style="color:var(--dim);font-size:13px">Loading…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Logs</h2>
+    <div class="logbar">
+      <button class="navbtn" id="prevDay" title="Previous day">&#9664;</button>
+      <input type="date" id="logDate">
+      <button class="navbtn" id="nextDay" title="Next day">&#9654;</button>
+      <span id="dayLabel"></span>
+    </div>
+    <div class="logbar">
+      <input type="text" id="logSearch" placeholder="Filter lines…" autocomplete="off">
+      <select id="logLevel">
+        <option value="all">All</option>
+        <option value="warn">Warnings &amp; errors</option>
+        <option value="err">Errors only</option>
+      </select>
+      <button class="navbtn" id="exportDay" title="Download this day's log">&#8681; Export</button>
+    </div>
+    <div id="logbox"></div>
+    <div class="logtools">
+      <small id="logCount">0 lines</small>
+      <a id="clearLogs">clear view</a>
+    </div>
+  </div>
+</div>
+
+<div id="keyform">
+  <div class="box">
+    <h2>API key</h2>
+    <p>Enter this server's API key (the same one the app uses).</p>
+    <div class="err-msg" id="keyErr">Key was rejected — try again.</div>
+    <input type="password" id="keyInput" placeholder="API key" autocomplete="off">
+    <button id="keySave" style="width:100%">Save</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const KEY_STORAGE = 'instaplayer_api_key';
+
+let apiKey = localStorage.getItem(KEY_STORAGE) || '';
+let status = null;          // last /downloader/status body
+let statusFailed = false;   // last status fetch errored (unreachable / bad key)
+let toastTimer = null;
+// log day navigation
+let serverToday = null;     // server's current UTC day
+let minDay = null;          // earliest day with logs
+let currentDay = null;      // day currently shown
+let logOffset = 0;          // line-offset cursor within currentDay
+
+// ---- auth ------------------------------------------------------------
+function showKeyForm(rejected) {
+  $('keyErr').style.display = rejected ? 'block' : 'none';
+  $('keyform').classList.add('show');
+  $('keyInput').focus();
+}
+$('keySave').onclick = () => {
+  const v = $('keyInput').value.trim();
+  if (!v) return;
+  apiKey = v;
+  localStorage.setItem(KEY_STORAGE, v);
+  $('keyform').classList.remove('show');
+  $('keyInput').value = '';
+  boot();
+};
+$('keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('keySave').onclick(); });
+$('changekey').onclick = () => showKeyForm(false);
+
+async function api(path, opts) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { ...(opts && opts.headers), Authorization: 'Bearer ' + apiKey },
+  });
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem(KEY_STORAGE);
+    showKeyForm(true);
+    throw new Error('unauthorized');
+  }
+  return res;
+}
+
+function toast(msg) {
+  $('toast').textContent = msg;
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3500);
+}
+
+// ---- rendering ---------------------------------------------------------
+function fmtDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
+function render() {
+  const light = $('light');
+  light.classList.remove('green', 'red', 'pulse');
+  if (statusFailed || !status) {
+    light.classList.add('red');
+    $('meta').textContent = statusFailed ? 'server unreachable' : 'connecting…';
+    $('probeBtn').disabled = true;
+    return;
+  }
+  const probing = !!status.probing;
+  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  const probeOk = status.lastProbe ? status.lastProbe.ok : null;
+  const bad = !status.importable || cooldownUntil || probeOk === false;
+  light.classList.add(bad ? 'red' : 'green');
+  if (probing) light.classList.add('pulse');
+
+  $('meta').textContent =
+    `${status.version || 'engine ?'} · sources: ${(status.services || []).join(', ')} · quality: ${status.quality || '?'}`;
+
+  // probe card
+  $('probeBtn').disabled = probing || !!status.activeJob || !status.importable;
+  $('probeState').textContent = probing ? 'Probing — downloads one sample track, can take minutes…'
+    : status.activeJob ? 'Disabled while a job is running'
+    : !status.importable ? (status.importError || 'Engine unavailable') : '';
+
+  const lp = status.lastProbe;
+  $('probeLine').innerHTML = lp
+    ? `Last check: <span class="${lp.ok ? 'good' : 'bad'}">${lp.ok ? 'passed' : 'failed'}</span>` +
+      ` — ${new Date(lp.at).toLocaleString()} (${Math.round(lp.elapsedSeconds)}s)` +
+      (lp.detail ? `<br>${escapeHtml(lp.detail)}` : '')
+    : 'No check has run yet.';
+
+  // active job card
+  const job = status.activeJob;
+  $('jobCard').style.display = job ? '' : 'none';
+  if (job) {
+    const total = job.total || 0, done = job.completed || 0;
+    $('jobTitle').innerHTML = `<b>${escapeHtml(job.spotifyUrl || '')}</b>`;
+    $('jobBar').style.width = total > 0 ? `${Math.min(100, Math.round(done / total * 100))}%` : '0%';
+    $('jobCounts').textContent = total > 0
+      ? `${done} of ${total} — ${Math.max(0, total - done)} remaining`
+      : `${done} downloaded (total unknown yet)`;
+    $('jobCurrent').textContent = job.current ? `Fetching: ${job.current}` : '';
+    $('cancelBtn').dataset.jobId = job.id;
+  }
+
+  const lj = status.lastJob;
+  $('lastJob').innerHTML = lj
+    ? `<span class="${lj.status === 'completed' ? 'good' : lj.status === 'failed' ? 'bad' : ''}">${lj.status}</span>` +
+      (lj.updatedAt ? ` — ${new Date(lj.updatedAt).toLocaleString()}` : '') +
+      (lj.error ? `<br>${escapeHtml(lj.error)}` : '')
+    : '—';
+}
+
+// countdown line ticks locally every second between polls
+function tickCountdown() {
+  const el = $('countdown');
+  if (!status) { el.textContent = ''; return; }
+  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  const target = cooldownUntil || status.nextProbeAt;
+  if (!target) { el.textContent = ''; el.classList.remove('cooldown'); return; }
+  const ms = Date.parse(target) - Date.now();
+  if (cooldownUntil) {
+    el.classList.add('cooldown');
+    el.textContent = ms > 0 ? `On cooldown — ${fmtDuration(ms)} until retry` : 'Cooldown over — retrying soon';
+  } else {
+    el.classList.remove('cooldown');
+    el.textContent = ms > 0 ? `Next check in ${fmtDuration(ms)}` : 'Next check due now';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---- system / storage ---------------------------------------------------
+let system = null;
+function fmtBytes(n) {
+  if (n == null) return '?';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i > 0 && v < 10 ? 1 : 0)} ${u[i]}`;
+}
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function renderSystem() {
+  if (!system) return;
+  const c = system.config, disk = system.disk;
+  const pct = disk && disk.total ? Math.round(disk.used / disk.total * 100) : 0;
+  const rows = [
+    ['Uptime', fmtUptime(system.uptimeSeconds)],
+    ['Disk', disk ? `${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${fmtBytes(disk.free)} free)` : '—'],
+    ['Job store', `${fmtBytes(system.jobStore.bytes)} · ${system.jobStore.activeDirs} active dir(s)`],
+    ['Logs', `${fmtBytes(system.logs.bytes)} · ${system.logs.days} day(s)`],
+    ['Sources', c.services.join(', ')],
+    ['Quality', c.quality],
+    ['Retries', String(c.trackMaxRetries)],
+    ['Probe every', c.probeIntervalMinutes > 0 ? `${c.probeIntervalMinutes} min` : 'off'],
+    ['Job retention', `${c.jobRetentionHours} h`],
+    ['Log retention', c.logRetentionDays > 0 ? `${c.logRetentionDays} day(s)` : 'forever'],
+    ['Qobuz token', c.qobuzTokenSet ? 'set' : '—'],
+    ['Spooty fallback', c.spootyEnabled ? 'on' : 'off'],
+  ];
+  let html = disk ? `<div class="diskbar"><div style="width:${pct}%"></div></div>` : '';
+  html += '<div class="sysgrid">';
+  for (const [k, v] of rows) html += `<div class="sk">${k}</div><div class="sv">${escapeHtml(v)}</div>`;
+  html += '</div>';
+  $('sysBody').innerHTML = html;
+}
+async function pollSystem() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/admin/system');
+    if (!res.ok) return;
+    system = await res.json();
+    renderSystem();
+  } catch (e) { /* transient */ }
+}
+
+// ---- probe reliability history -----------------------------------------
+let probeHist = null;
+function renderHistory() {
+  const el = $('probeHistory');
+  if (!probeHist || !probeHist.total) { el.innerHTML = ''; return; }
+  const recent = probeHist.history.slice(-40);
+  const bars = recent.map((x) =>
+    `<span class="spark ${x.ok ? 'ok' : 'bad'}" title="${escapeHtml(new Date(x.at).toLocaleString())} — ${x.ok ? 'ok' : 'failed'}"></span>`
+  ).join('');
+  el.innerHTML = `Worked ${probeHist.okCount} of ${probeHist.total} recent checks<div class="sparks">${bars}</div>`;
+}
+async function pollHistory() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/downloader/history');
+    if (!res.ok) return;
+    probeHist = await res.json();
+    renderHistory();
+  } catch (e) { /* transient */ }
+}
+
+// ---- recent jobs --------------------------------------------------------
+let jobs = [];
+function jobStatusClass(s) {
+  return s === 'completed' ? 'good' : (s === 'failed' || s === 'cancelled') ? 'bad' : '';
+}
+function renderJobs() {
+  const box = $('jobsBody');
+  if (!jobs.length) { box.innerHTML = '<span style="color:var(--dim);font-size:13px">No recent jobs.</span>'; return; }
+  let html = '<table class="jobtable"><thead><tr><th>When</th><th>Status</th><th>Progress</th><th>URL</th><th></th></tr></thead><tbody>';
+  for (const j of jobs) {
+    const active = j.status === 'queued' || j.status === 'running';
+    const when = j.updated_at ? new Date(j.updated_at).toLocaleString() : '';
+    const prog = j.total ? `${j.completed}/${j.total}` : String(j.completed || 0);
+    const url = escapeHtml(j.spotify_url || '');
+    let actions = active ? `<button class="minibtn danger" data-cancel="${j.id}">Cancel</button>` : '';
+    actions += `<button class="minibtn" data-del="${j.id}">Delete</button>`;
+    html += `<tr><td>${escapeHtml(when)}</td><td class="${jobStatusClass(j.status)}">${escapeHtml(j.status)}</td>` +
+      `<td>${prog}</td><td class="urlcell" title="${url}">${url}</td><td class="actions">${actions}</td></tr>`;
+    if (j.error) html += `<tr class="errrow"><td colspan="5">${escapeHtml(j.error)}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+  box.querySelectorAll('[data-cancel]').forEach((b) => { b.onclick = () => jobAction('cancel', b.getAttribute('data-cancel')); });
+  box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => jobAction('delete', b.getAttribute('data-del')); });
+}
+async function jobAction(kind, id) {
+  const msg = kind === 'cancel' ? 'Cancel this job?' : 'Delete this job and its files?';
+  if (!confirm(msg)) return;
+  try {
+    const res = kind === 'cancel'
+      ? await api(`/jobs/${id}/cancel`, { method: 'POST' })
+      : await api(`/jobs/${id}`, { method: 'DELETE' });
+    toast(res.ok ? (kind === 'cancel' ? 'Cancelling…' : 'Deleted') : `Failed (${res.status})`);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollJobs(); pollStatus();
+}
+async function pollJobs() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/jobs?limit=50');
+    if (!res.ok) return;
+    jobs = await res.json();
+    renderJobs();
+  } catch (e) { /* transient */ }
+}
+
+// ---- logs ---------------------------------------------------------------
+const MAX_RENDERED = 2000;
+let logEntries = [];           // current day's fetched lines (capped)
+let logNote = '';              // optional note shown above lines (e.g. truncated)
+
+function lineClass(line) {
+  if (line.startsWith('[spotiflac-dl]')) return 'engine';
+  if (line.startsWith('WARNING')) return 'warn';
+  if (line.startsWith('ERROR')) return 'err';
+  return '';
+}
+function matchesFilter(e) {
+  const level = $('logLevel').value;
+  if (level === 'err' && !e.line.startsWith('ERROR')) return false;
+  if (level === 'warn' && !(e.line.startsWith('ERROR') || e.line.startsWith('WARNING'))) return false;
+  const q = $('logSearch').value.trim().toLowerCase();
+  if (q && !e.line.toLowerCase().includes(q)) return false;
+  return true;
+}
+function renderLogs() {
+  const box = $('logbox');
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const shown = logEntries.filter(matchesFilter);
+  box.innerHTML = '';
+  if (logNote) {
+    const n = document.createElement('div');
+    n.style.color = 'var(--dim)';
+    n.textContent = logNote;
+    box.appendChild(n);
+  }
+  if (!shown.length && !logNote) {
+    box.innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(
+      logEntries.length ? 'No lines match the filter.' : 'No logs for this day.')}</div>`;
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const e of shown) {
+      const div = document.createElement('div');
+      const ts = new Date(e.ts).toLocaleTimeString();
+      div.innerHTML = `<span class="ts">${ts}</span> <span class="${lineClass(e.line)}">${escapeHtml(e.line)}</span>`;
+      frag.appendChild(div);
+    }
+    box.appendChild(frag);
+  }
+  const total = logEntries.length;
+  $('logCount').textContent = shown.length === total
+    ? `${total} lines` : `${shown.length} of ${total} lines`;
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+function appendLogs(lines) {
+  if (!lines.length) return;
+  logEntries.push(...lines);
+  if (logEntries.length > MAX_RENDERED) logEntries = logEntries.slice(-MAX_RENDERED);
+  renderLogs();
+}
+function resetLogs(note) {
+  logEntries = [];
+  logNote = note || '';
+  renderLogs();
+}
+function setPlaceholder(text) {
+  logEntries = [];
+  logNote = '';
+  $('logbox').innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(text)}</div>`;
+  $('logCount').textContent = '0 lines';
+}
+$('clearLogs').onclick = () => resetLogs('');
+$('logSearch').addEventListener('input', renderLogs);
+$('logLevel').addEventListener('change', renderLogs);
+
+// Export the full day (not just the rendered cap) as a text file.
+$('exportDay').onclick = async () => {
+  if (!currentDay) return;
+  try {
+    const res = await api(`/logs?date=${currentDay}&after=0&limit=1000000`);
+    if (!res.ok) { toast(`Export failed (${res.status})`); return; }
+    const body = await res.json();
+    const text = (body.lines || []).map(
+      (e) => `${new Date(e.ts).toISOString()}  ${e.line}`).join('\n');
+    const blob = new Blob([text || '(no logs for this day)'], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `instaplayer-logs-${currentDay}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+};
+
+// ---- day navigation -----------------------------------------------------
+function shiftDay(str, delta) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+function dayLabelFor(str) {
+  if (str === serverToday) return 'Today';
+  if (serverToday && str === shiftDay(serverToday, -1)) return 'Yesterday';
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined,
+    { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+function updateLogControls() {
+  const input = $('logDate');
+  input.max = serverToday || '';
+  input.min = minDay || '';
+  input.value = currentDay || serverToday || '';
+  $('dayLabel').textContent = currentDay ? dayLabelFor(currentDay) : '';
+  $('prevDay').disabled = !currentDay || (minDay && currentDay <= minDay);
+  $('nextDay').disabled = !currentDay || (serverToday && currentDay >= serverToday);
+}
+function switchDay(day) {
+  if (!day) return;
+  if (serverToday && day > serverToday) day = serverToday;
+  if (minDay && day < minDay) day = minDay;
+  currentDay = day;
+  logOffset = 0;
+  setPlaceholder('Loading…');
+  updateLogControls();
+  fetchLogs(true);
+}
+$('prevDay').onclick = () => { if (currentDay) switchDay(shiftDay(currentDay, -1)); };
+$('nextDay').onclick = () => { if (currentDay) switchDay(shiftDay(currentDay, 1)); };
+$('logDate').onchange = (e) => { if (e.target.value) switchDay(e.target.value); };
+
+async function refreshDays() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/logs/days');
+    if (!res.ok) return;
+    const body = await res.json();
+    serverToday = body.today;
+    const days = body.days || [];
+    minDay = days.length ? days[0] : serverToday;
+    if (!currentDay) currentDay = serverToday;
+    updateLogControls();
+  } catch (e) { /* transient */ }
+}
+
+// ---- actions --------------------------------------------------------------
+$('probeBtn').onclick = async () => {
+  $('probeBtn').disabled = true;
+  try {
+    const res = await api('/downloader/probe?force=true', { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast(body.detail || `Probe failed (${res.status})`);
+    } else {
+      toast('Probe finished — see result above');
+    }
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollStatus(); pollHistory();
+};
+
+$('cancelBtn').onclick = async () => {
+  const id = $('cancelBtn').dataset.jobId;
+  if (!id || !confirm('Cancel the running download job?')) return;
+  try {
+    const res = await api(`/jobs/${id}/cancel`, { method: 'POST' });
+    toast(res.ok ? 'Cancelling job…' : `Cancel failed (${res.status})`);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollStatus();
+};
+
+// ---- polling ---------------------------------------------------------------
+async function pollStatus() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/downloader/status');
+    if (!res.ok) throw new Error(String(res.status));
+    status = await res.json();
+    statusFailed = false;
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    statusFailed = true;
+  }
+  render();
+  tickCountdown();
+}
+
+// Fetch logs for the current day. Past days are static (fetched once on
+// switch, initial=true); only today's tail is polled for new lines.
+async function fetchLogs(initial) {
+  if (!apiKey || !currentDay) return;
+  if (!initial && currentDay !== serverToday) return;
+  try {
+    const res = await api(`/logs?date=${currentDay}&after=${logOffset}`);
+    if (!res.ok) return;
+    const body = await res.json();
+    if (initial) {
+      logOffset = 0;
+      resetLogs(body.exists && body.truncated ? '… showing the latest lines of this day …' : '');
+    }
+    appendLogs(body.lines || []);
+    if (body.nextOffset != null) logOffset = body.nextOffset;
+  } catch (e) { /* transient; next poll retries */ }
+}
+
+// No automatic polling — the dashboard refreshes only when asked (the Refresh
+// button, or after an action you take). The countdown still ticks locally every
+// second (from absolute timestamps), so it stays accurate between refreshes
+// without hitting the server.
+setInterval(tickCountdown, 1000);
+
+async function refreshAll() {
+  if (!apiKey) return;
+  const btn = $('refreshAll');
+  btn.disabled = true;
+  try {
+    await Promise.all([pollStatus(), fetchLogs(false), pollJobs(), pollSystem(), pollHistory(), refreshDays()]);
+    $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('refreshAll').onclick = refreshAll;
+
+// ---- boot -------------------------------------------------------------------
+async function boot() {
+  // One-time initial load (not polling): calendar + today's logs, then the rest.
+  await refreshDays();
+  switchDay(currentDay || serverToday);
+  await Promise.all([pollStatus(), pollJobs(), pollSystem(), pollHistory()]);
+  $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
+}
+if (!apiKey) showKeyForm(false);
+else boot();
+</script>
+</body>
+</html>

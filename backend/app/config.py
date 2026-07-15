@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     # 0 disables the periodic probe. Note each probe downloads one track.
     probe_interval_minutes: float = 60.0
 
+    # How many days of daily log files (data/logs/YYYY-MM-DD.jsonl) to keep;
+    # older ones are pruned on startup. 0 = keep forever. Override via
+    # LOG_RETENTION_DAYS.
+    log_retention_days: int = 30
+
+    @property
+    def logs_dir(self) -> Path:
+        # Per-day log files for the admin dashboard's calendar view.
+        return self.data_dir / "logs"
+
     @property
     def jobs_dir(self) -> Path:
         # Temporary per-job storage: SpotiFLAC downloads here, the device pulls
