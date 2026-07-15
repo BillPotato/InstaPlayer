@@ -121,6 +121,8 @@
     <div class="light" id="light"></div>
     <h1>InstaPlayer Admin</h1>
     <div class="meta" id="meta">connecting…</div>
+    <span id="updatedAt" style="color:var(--dim);font-size:12px"></span>
+    <button class="navbtn" id="refreshAll" title="Refresh everything">&#8635; Refresh</button>
     <span class="keylink" id="changekey">change key</span>
   </header>
 
@@ -372,7 +374,7 @@ function renderSystem() {
   $('sysBody').innerHTML = html;
 }
 async function pollSystem() {
-  if (document.hidden || !apiKey) return;
+  if (!apiKey) return;
   try {
     const res = await api('/admin/system');
     if (!res.ok) return;
@@ -393,7 +395,7 @@ function renderHistory() {
   el.innerHTML = `Worked ${probeHist.okCount} of ${probeHist.total} recent checks<div class="sparks">${bars}</div>`;
 }
 async function pollHistory() {
-  if (document.hidden || !apiKey) return;
+  if (!apiKey) return;
   try {
     const res = await api('/downloader/history');
     if (!res.ok) return;
@@ -441,7 +443,7 @@ async function jobAction(kind, id) {
   pollJobs(); pollStatus();
 }
 async function pollJobs() {
-  if (document.hidden || !apiKey) return;
+  if (!apiKey) return;
   try {
     const res = await api('/jobs?limit=50');
     if (!res.ok) return;
@@ -619,7 +621,7 @@ $('cancelBtn').onclick = async () => {
 
 // ---- polling ---------------------------------------------------------------
 async function pollStatus() {
-  if (document.hidden || !apiKey) return;
+  if (!apiKey) return;
   try {
     const res = await api('/downloader/status');
     if (!res.ok) throw new Error(String(res.status));
@@ -651,38 +653,32 @@ async function fetchLogs(initial) {
   } catch (e) { /* transient; next poll retries */ }
 }
 
-// One scheduler for every poll, with an adaptive cadence. When idle the loops
-// are slow (the page stays quiet — no per-second request flood); when "busy"
-// (a job running or a probe in flight) they tighten so logs/progress stay live.
-// The countdown ticks locally, so status doesn't need frequent polling.
-const POLLERS = [
-  { fn: pollStatus, idle: 12000, busy: 3000, last: 0 },
-  { fn: () => fetchLogs(false), idle: 15000, busy: 2000, last: 0 },
-  { fn: pollJobs, idle: 20000, busy: 5000, last: 0 },
-  { fn: pollSystem, idle: 60000, busy: 60000, last: 0 },
-  { fn: pollHistory, idle: 120000, busy: 120000, last: 0 },
-  { fn: refreshDays, idle: 300000, busy: 300000, last: 0 },
-];
-setInterval(() => {
-  if (document.hidden || !apiKey) return;
-  const busy = !!(status && (status.probing || status.activeJob));
-  const now = Date.now();
-  for (const p of POLLERS) {
-    if (now - p.last >= (busy ? p.busy : p.idle)) { p.last = now; p.fn(); }
-  }
-}, 1000);
+// No automatic polling — the dashboard refreshes only when asked (the Refresh
+// button, or after an action you take). The countdown still ticks locally every
+// second (from absolute timestamps), so it stays accurate between refreshes
+// without hitting the server.
 setInterval(tickCountdown, 1000);
-document.addEventListener('visibilitychange', () => {
-  // On returning to the tab, refresh everything on the next tick.
-  if (!document.hidden) for (const p of POLLERS) p.last = 0;
-});
+
+async function refreshAll() {
+  if (!apiKey) return;
+  const btn = $('refreshAll');
+  btn.disabled = true;
+  try {
+    await Promise.all([pollStatus(), fetchLogs(false), pollJobs(), pollSystem(), pollHistory(), refreshDays()]);
+    $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('refreshAll').onclick = refreshAll;
 
 // ---- boot -------------------------------------------------------------------
 async function boot() {
-  // Immediate first paint of the calendar + today's logs; the scheduler above
-  // (POLLERS all start due) fills in status/jobs/system/history within ~1s.
+  // One-time initial load (not polling): calendar + today's logs, then the rest.
   await refreshDays();
   switchDay(currentDay || serverToday);
+  await Promise.all([pollStatus(), pollJobs(), pollSystem(), pollHistory()]);
+  $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
 }
 if (!apiKey) showKeyForm(false);
 else boot();
