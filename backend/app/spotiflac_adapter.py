@@ -30,6 +30,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from . import logbuffer
+
 ProgressCb = Callable[[dict[str, Any]], None]
 
 #: Name of the engine binary on PATH. Overridable via ``SPOTIFLAC_DL_BIN``.
@@ -157,6 +159,7 @@ def run_spotiflac(
         for raw in proc.stdout:
             line = raw.rstrip("\n")
             print(f"[spotiflac-dl] {line}", file=sys.stdout, flush=True)
+            logbuffer.append(f"[spotiflac-dl] {line}")  # /logs (admin dashboard)
             tail.append(line)
             if len(tail) > 20:
                 del tail[0]

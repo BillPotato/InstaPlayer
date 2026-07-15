@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import downloader
+from . import downloader, logbuffer
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
@@ -53,6 +53,7 @@ def _fail_orphaned_jobs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN001
+    logbuffer.install()  # capture app logs for GET /logs (admin dashboard)
     init_db()
     _fail_orphaned_jobs()
     manager = get_job_manager()
@@ -83,6 +84,16 @@ async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/logs", dependencies=[Depends(require_auth)])
+def get_logs(after: int = 0, limit: int = 500) -> dict:
+    """Recent server log lines (in-memory ring buffer, admin dashboard).
+
+    Pass ``after=<lastSeq>`` to fetch only lines newer than the previous
+    response — makes a tight poll near-free."""
+    lines = logbuffer.since(after, limit)
+    return {"lines": lines, "lastSeq": lines[-1]["seq"] if lines else after}
 
 
 # --------------------------------------------------------------------------
