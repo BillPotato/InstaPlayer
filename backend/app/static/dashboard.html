@@ -42,10 +42,14 @@
   .statusline .good { color: var(--accent); }
   .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
   .countdown.cooldown { color: var(--red); font-weight: 600; }
-  .sparks { margin-top: 6px; line-height: 1; }
-  .spark { display: inline-block; width: 7px; height: 14px; border-radius: 2px; margin-right: 2px; background: var(--card-hi); vertical-align: middle; }
-  .spark.ok { background: #22C55E; }
-  .spark.bad { background: var(--red); }
+  .timeline { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--card-hi); margin-top: 6px; }
+  .tlseg { height: 100%; }
+  .tlseg.ok { background: #22C55E; }
+  .tlseg.bad { background: var(--red); }
+  .tlseg.gap { background: #2a2a2a; }
+  .winbtn { background: var(--card-hi); color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+  .winbtn.active { background: var(--accent); color: #000; }
+  .histscale { display: flex; justify-content: space-between; margin-top: 3px; font-size: 11px; color: var(--dim); }
   .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
   .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
   .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
@@ -134,7 +138,18 @@
     </div>
     <div class="countdown" id="countdown"></div>
     <div class="statusline" id="probeLine"></div>
-    <div class="statusline" id="probeHistory" style="margin-top:10px"></div>
+    <div style="margin-top:14px">
+      <div class="row" style="justify-content:space-between">
+        <span style="font-size:13px;color:var(--dim)" id="histSummary"></span>
+        <span id="histWindows">
+          <button class="winbtn active" data-win="24h">24h</button>
+          <button class="winbtn" data-win="3d">3d</button>
+          <button class="winbtn" data-win="7d">7d</button>
+        </span>
+      </div>
+      <div class="timeline" id="timeline"></div>
+      <div class="histscale" id="histScale"></div>
+    </div>
   </div>
 
   <div class="card" id="jobCard" style="display:none">
@@ -383,17 +398,69 @@ async function pollSystem() {
   } catch (e) { /* transient */ }
 }
 
-// ---- probe reliability history -----------------------------------------
+// ---- download-health timeline ------------------------------------------
+// A proportional green/red timeline: each health sample (hourly probe + real
+// job outcomes) colours the span until the next sample. A quiet stretch longer
+// than the gap threshold shows as "no data" rather than a stale colour.
+const HIST_WINDOWS = { '24h': 864e5, '3d': 3 * 864e5, '7d': 7 * 864e5 };
+const HIST_GAP_MS = 2.5 * 3600 * 1000;
 let probeHist = null;
+let histWindow = '24h';
+
 function renderHistory() {
-  const el = $('probeHistory');
-  if (!probeHist || !probeHist.total) { el.innerHTML = ''; return; }
-  const recent = probeHist.history.slice(-40);
-  const bars = recent.map((x) =>
-    `<span class="spark ${x.ok ? 'ok' : 'bad'}" title="${escapeHtml(new Date(x.at).toLocaleString())} — ${x.ok ? 'ok' : 'failed'}"></span>`
-  ).join('');
-  el.innerHTML = `Worked ${probeHist.okCount} of ${probeHist.total} recent checks<div class="sparks">${bars}</div>`;
+  const tl = $('timeline');
+  const evs = (probeHist && probeHist.history) ? probeHist.history.slice() : [];
+  evs.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  if (!evs.length) {
+    tl.innerHTML = '';
+    $('histSummary').textContent = 'No download history yet.';
+    $('histScale').innerHTML = '';
+    return;
+  }
+  const now = Date.now();
+  const winMs = HIST_WINDOWS[histWindow];
+  const start = now - winMs;
+  const segs = [];
+  let okMs = 0, badMs = 0;
+  const firstAt = Date.parse(evs[0].at);
+  if (firstAt > start) segs.push({ from: start, to: Math.min(firstAt, now), gap: true });
+  for (let i = 0; i < evs.length; i++) {
+    const t0 = Date.parse(evs[i].at);
+    const t1 = (i + 1 < evs.length) ? Date.parse(evs[i + 1].at) : now;
+    if (t1 <= start) continue;
+    const from = Math.max(t0, start);
+    const to = Math.min(t1, now);
+    if (to <= from) continue;
+    const trustedTo = Math.min(to, Math.max(from, t0 + HIST_GAP_MS));
+    if (trustedTo > from) {
+      const dur = trustedTo - from;
+      if (evs[i].ok) okMs += dur; else badMs += dur;
+      segs.push({ from, to: trustedTo, ok: evs[i].ok, src: evs[i].source, detail: evs[i].detail });
+    }
+    if (to > trustedTo) segs.push({ from: trustedTo, to, gap: true });
+  }
+  tl.innerHTML = segs.map((s) => {
+    const w = (s.to - s.from) / winMs * 100;
+    const cls = s.gap ? 'gap' : (s.ok ? 'ok' : 'bad');
+    const label = s.gap ? 'no data' : (s.ok ? 'working' : 'failing') + (s.src === 'job' ? ' (download)' : '');
+    const title = `${new Date(s.from).toLocaleString()} → ${new Date(s.to).toLocaleString()} · ${label}` +
+      (s.detail ? ` · ${s.detail}` : '');
+    return `<span class="tlseg ${cls}" style="width:${w.toFixed(3)}%" title="${escapeHtml(title)}"></span>`;
+  }).join('');
+  const known = okMs + badMs;
+  $('histSummary').textContent = known > 0
+    ? `Working ${Math.round(okMs / known * 100)}% of the last ${histWindow}`
+    : `No checks in the last ${histWindow}`;
+  $('histScale').innerHTML =
+    `<span>${new Date(start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span>now</span>`;
 }
+document.querySelectorAll('.winbtn').forEach((b) => {
+  b.onclick = () => {
+    histWindow = b.dataset.win;
+    document.querySelectorAll('.winbtn').forEach((x) => x.classList.toggle('active', x === b));
+    renderHistory();  // client-side only; no request
+  };
+});
 async function pollHistory() {
   if (!apiKey) return;
   try {

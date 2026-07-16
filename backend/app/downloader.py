@@ -58,10 +58,12 @@ _COOLDOWN_MAX_SECONDS = 3 * 3600
 # The probe cache is mirrored here, inside DATA_DIR (next to the job store).
 _PROBE_CACHE_NAME = "last_probe.json"
 
-# Rolling history of recent probe outcomes (for the dashboard's reliability
-# timeline). In memory + mirrored to disk; bounded.
+# Rolling history of recent download-health outcomes (for the dashboard's
+# green/red reliability timeline). Fed by both the hourly probe (source="probe")
+# and real download jobs' terminal outcomes (source="job"). In memory + mirrored
+# to disk; bounded. Each entry: {at, ok, source, detail?}.
 _probe_history: list[dict] = []
-_PROBE_HISTORY_MAX = 50
+_PROBE_HISTORY_MAX = 200
 _PROBE_HISTORY_NAME = "probe_history.json"
 
 
@@ -98,9 +100,27 @@ def _load_history(settings: Settings) -> None:
 
 
 def probe_history() -> dict:
-    """Recent probe outcomes + a pass count, for the dashboard timeline."""
+    """Recent download-health outcomes (probe + real jobs) for the dashboard's
+    green/red timeline, plus a pass count."""
     ok_count = sum(1 for x in _probe_history if x.get("ok"))
     return {"history": list(_probe_history), "okCount": ok_count, "total": len(_probe_history)}
+
+
+def record_download_outcome(settings: Settings, ok: bool, detail: str | None = None) -> None:
+    """Append a real download job's terminal outcome to the health timeline, so
+    the dashboard's green/red timeline reflects actual downloads, not just the
+    hourly probe. Best-effort; never raises."""
+    try:
+        _probe_history.append({
+            "at": datetime.now(timezone.utc).isoformat(),
+            "ok": bool(ok),
+            "source": "job",
+            "detail": detail or None,
+        })
+        del _probe_history[:-_PROBE_HISTORY_MAX]
+        _persist_history(settings)
+    except Exception:  # pragma: no cover - advisory
+        log.debug("Could not record download outcome", exc_info=True)
 
 
 def _persist_probe(settings: Settings) -> None:
@@ -318,7 +338,7 @@ async def probe(settings: Settings) -> dict:
         }
         _last_probe_epoch = now
         _persist_probe(settings)  # survive restarts within the freshness / cooldown window
-        _probe_history.append({"at": _last_probe["at"], "ok": ok})
+        _probe_history.append({"at": _last_probe["at"], "ok": ok, "source": "probe"})
         del _probe_history[:-_PROBE_HISTORY_MAX]  # keep the last N
         _persist_history(settings)
         log.info(
