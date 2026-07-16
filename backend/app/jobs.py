@@ -20,6 +20,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from . import downloader
 from .config import Settings, get_settings
 from .db import SessionLocal
 from .ingest import scan_flacs, update_manifest
@@ -260,12 +261,16 @@ class JobManager:
                     error="No tracks could be downloaded — all sources failed. "
                     "Try again later.",
                 )
+                downloader.record_download_outcome(
+                    self.settings, False, "No tracks could be downloaded"
+                )
             else:
                 # Keep the dir; the device pulls from it, then DELETEs the job.
                 self._set_status(
                     job_id, status="completed", total=total, completed=count,
                     current=None, error=None,
                 )
+                downloader.record_download_outcome(self.settings, True)
         except asyncio.CancelledError:
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -287,6 +292,7 @@ class JobManager:
             self._set_status(
                 job_id, status="failed", current=None, error=f"Unexpected error: {exc}"
             )
+            downloader.record_download_outcome(self.settings, False, f"Unexpected error: {exc}")
         finally:
             self._tasks.pop(job_id, None)
 

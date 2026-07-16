@@ -42,10 +42,40 @@
   .statusline .good { color: var(--accent); }
   .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
   .countdown.cooldown { color: var(--red); font-weight: 600; }
+  .timeline { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--card-hi); margin-top: 6px; }
+  .tlseg { height: 100%; }
+  .tlseg.ok { background: #22C55E; }
+  .tlseg.bad { background: var(--red); }
+  .tlseg.gap { background: #2a2a2a; }
+  .winbtn { background: var(--card-hi); color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+  .winbtn.active { background: var(--accent); color: #000; }
+  .tlwrap { position: relative; }
+  .tlgrid { position: absolute; inset: 0; pointer-events: none; }
+  .tlgrid > span { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.14); }
+  .histaxis { position: relative; height: 16px; margin-top: 4px; }
+  .histaxis .tickmark { position: absolute; top: 0; width: 1px; height: 4px; background: var(--border); }
+  .histaxis .ticklabel { position: absolute; top: 5px; font-size: 10px; color: var(--dim); white-space: nowrap; }
   .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
   .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
   .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
   .jobmeta b { color: var(--text); }
+  .sysgrid { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; font-size: 13px; }
+  .sysgrid .sk { color: var(--dim); white-space: nowrap; }
+  .sysgrid .sv { color: var(--text); word-break: break-word; }
+  .diskbar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin-bottom: 12px; }
+  .diskbar > div { height: 100%; background: var(--accent); }
+  #jobsBody { overflow-x: auto; }
+  .jobtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .jobtable th { text-align: left; color: var(--dim); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .jobtable td { padding: 5px 8px; border-bottom: 1px solid #202020; vertical-align: top; }
+  .jobtable td.good { color: var(--accent); }
+  .jobtable td.bad { color: var(--red); }
+  .jobtable .urlcell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .jobtable .errrow td { color: var(--red); font-size: 11px; padding-top: 0; }
+  .jobtable .actions { white-space: nowrap; text-align: right; }
+  .minibtn { background: var(--card-hi); color: var(--text); border: 0; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+  .minibtn.danger { color: var(--red); }
+  .minibtn:hover { background: #333; }
   #logbox {
     background: #0d0d0d; border: 1px solid var(--border); border-radius: 8px;
     font: 12px/1.45 ui-monospace, Consolas, "Courier New", monospace;
@@ -59,6 +89,19 @@
   .logtools { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .logtools small { color: var(--dim); }
   .logtools a { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .logbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .navbtn {
+    background: var(--card-hi); color: var(--text); border: 0; border-radius: 6px;
+    padding: 6px 13px; font-size: 15px; line-height: 1; cursor: pointer;
+  }
+  .navbtn:hover:not(:disabled) { background: #333; filter: none; }
+  .navbtn:disabled { opacity: 0.3; cursor: default; }
+  .logbar input[type=date], .logbar input[type=text], .logbar select {
+    background: var(--card-hi); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; color-scheme: dark;
+  }
+  .logbar input[type=text] { flex: 1; min-width: 140px; }
+  #dayLabel { color: var(--dim); font-size: 12px; }
   /* key overlay */
   #keyform {
     position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none;
@@ -87,6 +130,8 @@
     <div class="light" id="light"></div>
     <h1>InstaPlayer Admin</h1>
     <div class="meta" id="meta">connecting…</div>
+    <span id="updatedAt" style="color:var(--dim);font-size:12px"></span>
+    <button class="navbtn" id="refreshAll" title="Refresh everything">&#8635; Refresh</button>
     <span class="keylink" id="changekey">change key</span>
   </header>
 
@@ -98,6 +143,21 @@
     </div>
     <div class="countdown" id="countdown"></div>
     <div class="statusline" id="probeLine"></div>
+    <div style="margin-top:14px">
+      <div class="row" style="justify-content:space-between">
+        <span style="font-size:13px;color:var(--dim)" id="histSummary"></span>
+        <span id="histWindows">
+          <button class="winbtn active" data-win="24h">24h</button>
+          <button class="winbtn" data-win="3d">3d</button>
+          <button class="winbtn" data-win="7d">7d</button>
+        </span>
+      </div>
+      <div class="tlwrap">
+        <div class="timeline" id="timeline"></div>
+        <div class="tlgrid" id="tlgrid"></div>
+      </div>
+      <div class="histaxis" id="histScale"></div>
+    </div>
   </div>
 
   <div class="card" id="jobCard" style="display:none">
@@ -116,7 +176,32 @@
   </div>
 
   <div class="card">
+    <h2>Recent jobs</h2>
+    <div id="jobsBody"><span style="color:var(--dim);font-size:13px">Loading…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>System</h2>
+    <div id="sysBody"><span style="color:var(--dim);font-size:13px">Loading…</span></div>
+  </div>
+
+  <div class="card">
     <h2>Logs</h2>
+    <div class="logbar">
+      <button class="navbtn" id="prevDay" title="Previous day">&#9664;</button>
+      <input type="date" id="logDate">
+      <button class="navbtn" id="nextDay" title="Next day">&#9654;</button>
+      <span id="dayLabel"></span>
+    </div>
+    <div class="logbar">
+      <input type="text" id="logSearch" placeholder="Filter lines…" autocomplete="off">
+      <select id="logLevel">
+        <option value="all">All</option>
+        <option value="warn">Warnings &amp; errors</option>
+        <option value="err">Errors only</option>
+      </select>
+      <button class="navbtn" id="exportDay" title="Download this day's log">&#8681; Export</button>
+    </div>
     <div id="logbox"></div>
     <div class="logtools">
       <small id="logCount">0 lines</small>
@@ -144,9 +229,12 @@ const KEY_STORAGE = 'instaplayer_api_key';
 let apiKey = localStorage.getItem(KEY_STORAGE) || '';
 let status = null;          // last /downloader/status body
 let statusFailed = false;   // last status fetch errored (unreachable / bad key)
-let lastSeq = 0;            // /logs incremental cursor
-let logLines = 0;
 let toastTimer = null;
+// log day navigation
+let serverToday = null;     // server's current UTC day
+let minDay = null;          // earliest day with logs
+let currentDay = null;      // day currently shown
+let logOffset = 0;          // line-offset cursor within currentDay
 
 // ---- auth ------------------------------------------------------------
 function showKeyForm(rejected) {
@@ -161,7 +249,7 @@ $('keySave').onclick = () => {
   localStorage.setItem(KEY_STORAGE, v);
   $('keyform').classList.remove('show');
   $('keyInput').value = '';
-  pollStatus(); pollLogs();
+  boot();
 };
 $('keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('keySave').onclick(); });
 $('changekey').onclick = () => showKeyForm(false);
@@ -269,30 +357,342 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ---- system / storage ---------------------------------------------------
+let system = null;
+function fmtBytes(n) {
+  if (n == null) return '?';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i > 0 && v < 10 ? 1 : 0)} ${u[i]}`;
+}
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function renderSystem() {
+  if (!system) return;
+  const c = system.config, disk = system.disk;
+  const pct = disk && disk.total ? Math.round(disk.used / disk.total * 100) : 0;
+  const rows = [
+    ['Uptime', fmtUptime(system.uptimeSeconds)],
+    ['Disk', disk ? `${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${fmtBytes(disk.free)} free)` : '—'],
+    ['Job store', `${fmtBytes(system.jobStore.bytes)} · ${system.jobStore.activeDirs} active dir(s)`],
+    ['Logs', `${fmtBytes(system.logs.bytes)} · ${system.logs.days} day(s)`],
+    ['Sources', c.services.join(', ')],
+    ['Quality', c.quality],
+    ['Retries', String(c.trackMaxRetries)],
+    ['Probe every', c.probeIntervalMinutes > 0 ? `${c.probeIntervalMinutes} min` : 'off'],
+    ['Job retention', `${c.jobRetentionHours} h`],
+    ['Log retention', c.logRetentionDays > 0 ? `${c.logRetentionDays} day(s)` : 'forever'],
+    ['Qobuz token', c.qobuzTokenSet ? 'set' : '—'],
+    ['Spooty fallback', c.spootyEnabled ? 'on' : 'off'],
+  ];
+  let html = disk ? `<div class="diskbar"><div style="width:${pct}%"></div></div>` : '';
+  html += '<div class="sysgrid">';
+  for (const [k, v] of rows) html += `<div class="sk">${k}</div><div class="sv">${escapeHtml(v)}</div>`;
+  html += '</div>';
+  $('sysBody').innerHTML = html;
+}
+async function pollSystem() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/admin/system');
+    if (!res.ok) return;
+    system = await res.json();
+    renderSystem();
+  } catch (e) { /* transient */ }
+}
+
+// ---- download-health timeline ------------------------------------------
+// A proportional green/red timeline: each health sample (hourly probe + real
+// job outcomes) colours the span until the next sample. A quiet stretch longer
+// than the gap threshold shows as "no data" rather than a stale colour.
+const HIST_WINDOWS = { '24h': 864e5, '3d': 3 * 864e5, '7d': 7 * 864e5 };
+const HIST_GAP_MS = 2.5 * 3600 * 1000;
+const TICK_STEP = { '24h': 4 * 3600e3, '3d': 12 * 3600e3, '7d': 24 * 3600e3 };
+let probeHist = null;
+let histWindow = '24h';
+
+function fmtTick(d, win) {
+  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (win === '24h') return t;
+  if (win === '7d') return d.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+  return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+}
+function tickStart(startMs, stepMs) {
+  const d = new Date(startMs);
+  d.setHours(0, 0, 0, 0);           // align ticks to local midnight boundaries
+  let t = d.getTime();
+  while (t < startMs) t += stepMs;  // first boundary at/after the window start
+  return t;
+}
+
+function renderHistory() {
+  const tl = $('timeline');
+  const evs = (probeHist && probeHist.history) ? probeHist.history.slice() : [];
+  evs.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  if (!evs.length) {
+    tl.innerHTML = '';
+    $('histSummary').textContent = 'No download history yet.';
+    $('histScale').innerHTML = '';
+    $('tlgrid').innerHTML = '';
+    return;
+  }
+  const now = Date.now();
+  const winMs = HIST_WINDOWS[histWindow];
+  const start = now - winMs;
+  const segs = [];
+  let okMs = 0, badMs = 0;
+  const firstAt = Date.parse(evs[0].at);
+  if (firstAt > start) segs.push({ from: start, to: Math.min(firstAt, now), gap: true });
+  for (let i = 0; i < evs.length; i++) {
+    const t0 = Date.parse(evs[i].at);
+    const t1 = (i + 1 < evs.length) ? Date.parse(evs[i + 1].at) : now;
+    if (t1 <= start) continue;
+    const from = Math.max(t0, start);
+    const to = Math.min(t1, now);
+    if (to <= from) continue;
+    const trustedTo = Math.min(to, Math.max(from, t0 + HIST_GAP_MS));
+    if (trustedTo > from) {
+      const dur = trustedTo - from;
+      if (evs[i].ok) okMs += dur; else badMs += dur;
+      segs.push({ from, to: trustedTo, ok: evs[i].ok, src: evs[i].source, detail: evs[i].detail });
+    }
+    if (to > trustedTo) segs.push({ from: trustedTo, to, gap: true });
+  }
+  tl.innerHTML = segs.map((s) => {
+    const w = (s.to - s.from) / winMs * 100;
+    const cls = s.gap ? 'gap' : (s.ok ? 'ok' : 'bad');
+    const label = s.gap ? 'no data' : (s.ok ? 'working' : 'failing') + (s.src === 'job' ? ' (download)' : '');
+    const title = `${new Date(s.from).toLocaleString()} → ${new Date(s.to).toLocaleString()} · ${label}` +
+      (s.detail ? ` · ${s.detail}` : '');
+    return `<span class="tlseg ${cls}" style="width:${w.toFixed(3)}%" title="${escapeHtml(title)}"></span>`;
+  }).join('');
+  const known = okMs + badMs;
+  $('histSummary').textContent = known > 0
+    ? `Working ${Math.round(okMs / known * 100)}% of the last ${histWindow}`
+    : `No checks in the last ${histWindow}`;
+  // Time axis: tick marks + labels aligned to local boundaries, with faint
+  // gridlines over the timeline so the timestamps line up with the segments.
+  const step = TICK_STEP[histWindow];
+  let grid = '', axis = '';
+  for (let t = tickStart(start, step); t <= now; t += step) {
+    const pos = (t - start) / winMs * 100;
+    if (pos < 0 || pos > 100) continue;
+    const tf = pos < 6 ? 'translateX(0)' : pos > 94 ? 'translateX(-100%)' : 'translateX(-50%)';
+    const p = pos.toFixed(3);
+    grid += `<span style="left:${p}%"></span>`;
+    axis += `<span class="tickmark" style="left:${p}%"></span>` +
+      `<span class="ticklabel" style="left:${p}%;transform:${tf}">${escapeHtml(fmtTick(new Date(t), histWindow))}</span>`;
+  }
+  $('tlgrid').innerHTML = grid;
+  $('histScale').innerHTML = axis;
+}
+document.querySelectorAll('.winbtn').forEach((b) => {
+  b.onclick = () => {
+    histWindow = b.dataset.win;
+    document.querySelectorAll('.winbtn').forEach((x) => x.classList.toggle('active', x === b));
+    renderHistory();  // client-side only; no request
+  };
+});
+async function pollHistory() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/downloader/history');
+    if (!res.ok) return;
+    probeHist = await res.json();
+    renderHistory();
+  } catch (e) { /* transient */ }
+}
+
+// ---- recent jobs --------------------------------------------------------
+let jobs = [];
+function jobStatusClass(s) {
+  return s === 'completed' ? 'good' : (s === 'failed' || s === 'cancelled') ? 'bad' : '';
+}
+function renderJobs() {
+  const box = $('jobsBody');
+  if (!jobs.length) { box.innerHTML = '<span style="color:var(--dim);font-size:13px">No recent jobs.</span>'; return; }
+  let html = '<table class="jobtable"><thead><tr><th>When</th><th>Status</th><th>Progress</th><th>URL</th><th></th></tr></thead><tbody>';
+  for (const j of jobs) {
+    const active = j.status === 'queued' || j.status === 'running';
+    const when = j.updated_at ? new Date(j.updated_at).toLocaleString() : '';
+    const prog = j.total ? `${j.completed}/${j.total}` : String(j.completed || 0);
+    const url = escapeHtml(j.spotify_url || '');
+    let actions = active ? `<button class="minibtn danger" data-cancel="${j.id}">Cancel</button>` : '';
+    actions += `<button class="minibtn" data-del="${j.id}">Delete</button>`;
+    html += `<tr><td>${escapeHtml(when)}</td><td class="${jobStatusClass(j.status)}">${escapeHtml(j.status)}</td>` +
+      `<td>${prog}</td><td class="urlcell" title="${url}">${url}</td><td class="actions">${actions}</td></tr>`;
+    if (j.error) html += `<tr class="errrow"><td colspan="5">${escapeHtml(j.error)}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+  box.querySelectorAll('[data-cancel]').forEach((b) => { b.onclick = () => jobAction('cancel', b.getAttribute('data-cancel')); });
+  box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => jobAction('delete', b.getAttribute('data-del')); });
+}
+async function jobAction(kind, id) {
+  const msg = kind === 'cancel' ? 'Cancel this job?' : 'Delete this job and its files?';
+  if (!confirm(msg)) return;
+  try {
+    const res = kind === 'cancel'
+      ? await api(`/jobs/${id}/cancel`, { method: 'POST' })
+      : await api(`/jobs/${id}`, { method: 'DELETE' });
+    toast(res.ok ? (kind === 'cancel' ? 'Cancelling…' : 'Deleted') : `Failed (${res.status})`);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollJobs(); pollStatus();
+}
+async function pollJobs() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/jobs?limit=50');
+    if (!res.ok) return;
+    jobs = await res.json();
+    renderJobs();
+  } catch (e) { /* transient */ }
+}
+
 // ---- logs ---------------------------------------------------------------
-const MAX_RENDERED = 500;
+const MAX_RENDERED = 2000;
+let logEntries = [];           // current day's fetched lines (capped)
+let logNote = '';              // optional note shown above lines (e.g. truncated)
+
+function lineClass(line) {
+  if (line.startsWith('[spotiflac-dl]')) return 'engine';
+  if (line.startsWith('WARNING')) return 'warn';
+  if (line.startsWith('ERROR')) return 'err';
+  return '';
+}
+function matchesFilter(e) {
+  const level = $('logLevel').value;
+  if (level === 'err' && !e.line.startsWith('ERROR')) return false;
+  if (level === 'warn' && !(e.line.startsWith('ERROR') || e.line.startsWith('WARNING'))) return false;
+  const q = $('logSearch').value.trim().toLowerCase();
+  if (q && !e.line.toLowerCase().includes(q)) return false;
+  return true;
+}
+function renderLogs() {
+  const box = $('logbox');
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const shown = logEntries.filter(matchesFilter);
+  box.innerHTML = '';
+  if (logNote) {
+    const n = document.createElement('div');
+    n.style.color = 'var(--dim)';
+    n.textContent = logNote;
+    box.appendChild(n);
+  }
+  if (!shown.length && !logNote) {
+    box.innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(
+      logEntries.length ? 'No lines match the filter.' : 'No logs for this day.')}</div>`;
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const e of shown) {
+      const div = document.createElement('div');
+      const ts = new Date(e.ts).toLocaleTimeString();
+      div.innerHTML = `<span class="ts">${ts}</span> <span class="${lineClass(e.line)}">${escapeHtml(e.line)}</span>`;
+      frag.appendChild(div);
+    }
+    box.appendChild(frag);
+  }
+  const total = logEntries.length;
+  $('logCount').textContent = shown.length === total
+    ? `${total} lines` : `${shown.length} of ${total} lines`;
+  if (stick) box.scrollTop = box.scrollHeight;
+}
 function appendLogs(lines) {
   if (!lines.length) return;
-  const box = $('logbox');
-  const stickToBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
-  const frag = document.createDocumentFragment();
-  for (const e of lines) {
-    const div = document.createElement('div');
-    const ts = new Date(e.ts).toLocaleTimeString();
-    let cls = '';
-    if (e.line.startsWith('[spotiflac-dl]')) cls = 'engine';
-    else if (e.line.startsWith('WARNING')) cls = 'warn';
-    else if (e.line.startsWith('ERROR')) cls = 'err';
-    div.innerHTML = `<span class="ts">${ts}</span> <span class="${cls}">${escapeHtml(e.line)}</span>`;
-    frag.appendChild(div);
-  }
-  box.appendChild(frag);
-  logLines += lines.length;
-  while (box.childNodes.length > MAX_RENDERED) box.removeChild(box.firstChild);
-  $('logCount').textContent = `${Math.min(logLines, MAX_RENDERED)} lines`;
-  if (stickToBottom) box.scrollTop = box.scrollHeight;
+  logEntries.push(...lines);
+  if (logEntries.length > MAX_RENDERED) logEntries = logEntries.slice(-MAX_RENDERED);
+  renderLogs();
 }
-$('clearLogs').onclick = () => { $('logbox').innerHTML = ''; logLines = 0; $('logCount').textContent = '0 lines'; };
+function resetLogs(note) {
+  logEntries = [];
+  logNote = note || '';
+  renderLogs();
+}
+function setPlaceholder(text) {
+  logEntries = [];
+  logNote = '';
+  $('logbox').innerHTML = `<div id="logPlaceholder" style="color:var(--dim)">${escapeHtml(text)}</div>`;
+  $('logCount').textContent = '0 lines';
+}
+$('clearLogs').onclick = () => resetLogs('');
+$('logSearch').addEventListener('input', renderLogs);
+$('logLevel').addEventListener('change', renderLogs);
+
+// Export the full day (not just the rendered cap) as a text file.
+$('exportDay').onclick = async () => {
+  if (!currentDay) return;
+  try {
+    const res = await api(`/logs?date=${currentDay}&after=0&limit=1000000`);
+    if (!res.ok) { toast(`Export failed (${res.status})`); return; }
+    const body = await res.json();
+    const text = (body.lines || []).map(
+      (e) => `${new Date(e.ts).toISOString()}  ${e.line}`).join('\n');
+    const blob = new Blob([text || '(no logs for this day)'], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `instaplayer-logs-${currentDay}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+};
+
+// ---- day navigation -----------------------------------------------------
+function shiftDay(str, delta) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+function dayLabelFor(str) {
+  if (str === serverToday) return 'Today';
+  if (serverToday && str === shiftDay(serverToday, -1)) return 'Yesterday';
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined,
+    { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+function updateLogControls() {
+  const input = $('logDate');
+  input.max = serverToday || '';
+  input.min = minDay || '';
+  input.value = currentDay || serverToday || '';
+  $('dayLabel').textContent = currentDay ? dayLabelFor(currentDay) : '';
+  $('prevDay').disabled = !currentDay || (minDay && currentDay <= minDay);
+  $('nextDay').disabled = !currentDay || (serverToday && currentDay >= serverToday);
+}
+function switchDay(day) {
+  if (!day) return;
+  if (serverToday && day > serverToday) day = serverToday;
+  if (minDay && day < minDay) day = minDay;
+  currentDay = day;
+  logOffset = 0;
+  setPlaceholder('Loading…');
+  updateLogControls();
+  fetchLogs(true);
+}
+$('prevDay').onclick = () => { if (currentDay) switchDay(shiftDay(currentDay, -1)); };
+$('nextDay').onclick = () => { if (currentDay) switchDay(shiftDay(currentDay, 1)); };
+$('logDate').onchange = (e) => { if (e.target.value) switchDay(e.target.value); };
+
+async function refreshDays() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/logs/days');
+    if (!res.ok) return;
+    const body = await res.json();
+    serverToday = body.today;
+    const days = body.days || [];
+    minDay = days.length ? days[0] : serverToday;
+    if (!currentDay) currentDay = serverToday;
+    updateLogControls();
+  } catch (e) { /* transient */ }
+}
 
 // ---- actions --------------------------------------------------------------
 $('probeBtn').onclick = async () => {
@@ -308,7 +708,7 @@ $('probeBtn').onclick = async () => {
   } catch (e) {
     if (e.message !== 'unauthorized') toast('Could not reach server');
   }
-  pollStatus();
+  pollStatus(); pollHistory();
 };
 
 $('cancelBtn').onclick = async () => {
@@ -325,7 +725,7 @@ $('cancelBtn').onclick = async () => {
 
 // ---- polling ---------------------------------------------------------------
 async function pollStatus() {
-  if (document.hidden || !apiKey) return;
+  if (!apiKey) return;
   try {
     const res = await api('/downloader/status');
     if (!res.ok) throw new Error(String(res.status));
@@ -339,39 +739,53 @@ async function pollStatus() {
   tickCountdown();
 }
 
-async function pollLogs() {
-  if (document.hidden || !apiKey) return;
+// Fetch logs for the current day. Past days are static (fetched once on
+// switch, initial=true); only today's tail is polled for new lines.
+async function fetchLogs(initial) {
+  if (!apiKey || !currentDay) return;
+  if (!initial && currentDay !== serverToday) return;
   try {
-    const res = await api(`/logs?after=${lastSeq}`);
+    const res = await api(`/logs?date=${currentDay}&after=${logOffset}`);
     if (!res.ok) return;
     const body = await res.json();
+    if (initial) {
+      logOffset = 0;
+      resetLogs(body.exists && body.truncated ? '… showing the latest lines of this day …' : '');
+    }
     appendLogs(body.lines || []);
-    lastSeq = body.lastSeq || lastSeq;
-  } catch (e) {
-    /* transient; next poll retries */
-  }
+    if (body.nextOffset != null) logOffset = body.nextOffset;
+  } catch (e) { /* transient; next poll retries */ }
 }
 
-// status: 10s normally, 3s while probing or a job is active; logs: 2s.
-let lastStatusPoll = 0;
-setInterval(() => {
-  if (document.hidden) return;
-  const busy = status && (status.probing || status.activeJob);
-  const interval = busy ? 3000 : 10000;
-  if (Date.now() - lastStatusPoll >= interval) {
-    lastStatusPoll = Date.now();
-    pollStatus();
-  }
-}, 1000);
-setInterval(pollLogs, 2000);
+// No automatic polling — the dashboard refreshes only when asked (the Refresh
+// button, or after an action you take). The countdown still ticks locally every
+// second (from absolute timestamps), so it stays accurate between refreshes
+// without hitting the server.
 setInterval(tickCountdown, 1000);
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastStatusPoll = 0; pollStatus(); pollLogs(); }
-});
+
+async function refreshAll() {
+  if (!apiKey) return;
+  const btn = $('refreshAll');
+  btn.disabled = true;
+  try {
+    await Promise.all([pollStatus(), fetchLogs(false), pollJobs(), pollSystem(), pollHistory(), refreshDays()]);
+    $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('refreshAll').onclick = refreshAll;
 
 // ---- boot -------------------------------------------------------------------
+async function boot() {
+  // One-time initial load (not polling): calendar + today's logs, then the rest.
+  await refreshDays();
+  switchDay(currentDay || serverToday);
+  await Promise.all([pollStatus(), pollJobs(), pollSystem(), pollHistory()]);
+  $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
+}
 if (!apiKey) showKeyForm(false);
-else { pollStatus(); pollLogs(); }
+else boot();
 </script>
 </body>
 </html>

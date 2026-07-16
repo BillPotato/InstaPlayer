@@ -10,6 +10,7 @@ import asyncio
 import logging
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import downloader, logbuffer
+from . import downloader, logbuffer, sysinfo
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
@@ -27,6 +28,9 @@ from .models import Job
 from .schemas import JobCreate, JobOut, Manifest
 
 log = logging.getLogger(__name__)
+
+# Process start time, for the dashboard's uptime readout.
+_STARTED_AT = datetime.now(timezone.utc)
 
 
 def _fail_orphaned_jobs() -> None:
@@ -53,13 +57,15 @@ def _fail_orphaned_jobs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN001
-    logbuffer.install()  # capture app logs for GET /logs (admin dashboard)
+    settings = get_settings()
+    # Capture app logs into per-day files for GET /logs (admin dashboard).
+    logbuffer.install(settings.logs_dir, settings.log_retention_days)
     init_db()
     _fail_orphaned_jobs()
     manager = get_job_manager()
     # Restore the last probe result from disk so a restart within the freshness
     # window doesn't trigger another (slow, rate-limit-hungry) probe.
-    downloader.load_persisted_probe(get_settings())
+    downloader.load_persisted_probe(settings)
     reaper = asyncio.create_task(manager.reaper())
     prober = asyncio.create_task(
         downloader.periodic_probe_loop(get_settings(), manager.has_active_jobs)
@@ -97,14 +103,31 @@ def admin_dashboard() -> HTMLResponse:
     return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
 
 
-@app.get("/logs", dependencies=[Depends(require_auth)])
-def get_logs(after: int = 0, limit: int = 500) -> dict:
-    """Recent server log lines (in-memory ring buffer, admin dashboard).
+@app.get("/admin/system", dependencies=[Depends(require_auth)])
+async def admin_system(settings: Settings = Depends(get_settings)) -> dict:
+    """Storage/health report for the dashboard (disk, job store, logs, uptime,
+    effective config). Disk IO runs off the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, sysinfo.system_report, settings, _STARTED_AT)
 
-    Pass ``after=<lastSeq>`` to fetch only lines newer than the previous
-    response — makes a tight poll near-free."""
-    lines = logbuffer.since(after, limit)
-    return {"lines": lines, "lastSeq": lines[-1]["seq"] if lines else after}
+
+@app.get("/logs/days", dependencies=[Depends(require_auth)])
+def get_log_days() -> dict:
+    """Days that have log files, plus the server's current day (for the
+    dashboard's calendar bounds and default view)."""
+    return {"days": logbuffer.available_days(), "today": logbuffer.today()}
+
+
+@app.get("/logs", dependencies=[Depends(require_auth)])
+def get_logs(date: str | None = None, after: int = 0, limit: int = 2000) -> dict:
+    """Log lines for one day (``?date=YYYY-MM-DD``, default today).
+
+    ``after`` is a line offset — pass the previous response's ``nextOffset`` to
+    fetch only new lines (cheap polling for today's live tail)."""
+    try:
+        return logbuffer.read_day(date, after=after, limit=limit)
+    except ValueError:
+        raise HTTPException(400, "date must be in YYYY-MM-DD format")
 
 
 # --------------------------------------------------------------------------
@@ -143,6 +166,12 @@ async def downloader_probe(
     return await downloader.probe_or_cached(settings, force)
 
 
+@app.get("/downloader/history", dependencies=[Depends(require_auth)])
+def downloader_history() -> dict:
+    """Recent probe pass/fail outcomes for the dashboard's reliability timeline."""
+    return downloader.probe_history()
+
+
 # --------------------------------------------------------------------------
 # Jobs
 # --------------------------------------------------------------------------
@@ -157,6 +186,14 @@ async def create_job(
     if job is None:
         raise HTTPException(500, detail="Job was created but could not be retrieved")
     return job
+
+
+@app.get("/jobs", response_model=list[JobOut], dependencies=[Depends(require_auth)])
+def list_jobs(limit: int = 50, session: Session = Depends(get_session)) -> list[Job]:
+    """Recent jobs, newest first (admin dashboard history). Rows are ephemeral —
+    cancelled/deleted jobs are gone, finished ones vanish when the reaper runs."""
+    limit = max(1, min(limit, 200))
+    return list(session.scalars(select(Job).order_by(Job.updated_at.desc()).limit(limit)))
 
 
 @app.get("/jobs/{job_id}", response_model=JobOut, dependencies=[Depends(require_auth)])
