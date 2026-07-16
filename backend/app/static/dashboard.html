@@ -49,7 +49,12 @@
   .tlseg.gap { background: #2a2a2a; }
   .winbtn { background: var(--card-hi); color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
   .winbtn.active { background: var(--accent); color: #000; }
-  .histscale { display: flex; justify-content: space-between; margin-top: 3px; font-size: 11px; color: var(--dim); }
+  .tlwrap { position: relative; }
+  .tlgrid { position: absolute; inset: 0; pointer-events: none; }
+  .tlgrid > span { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.14); }
+  .histaxis { position: relative; height: 16px; margin-top: 4px; }
+  .histaxis .tickmark { position: absolute; top: 0; width: 1px; height: 4px; background: var(--border); }
+  .histaxis .ticklabel { position: absolute; top: 5px; font-size: 10px; color: var(--dim); white-space: nowrap; }
   .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
   .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
   .jobmeta { font-size: 13px; color: var(--dim); word-break: break-all; }
@@ -147,8 +152,11 @@
           <button class="winbtn" data-win="7d">7d</button>
         </span>
       </div>
-      <div class="timeline" id="timeline"></div>
-      <div class="histscale" id="histScale"></div>
+      <div class="tlwrap">
+        <div class="timeline" id="timeline"></div>
+        <div class="tlgrid" id="tlgrid"></div>
+      </div>
+      <div class="histaxis" id="histScale"></div>
     </div>
   </div>
 
@@ -404,8 +412,23 @@ async function pollSystem() {
 // than the gap threshold shows as "no data" rather than a stale colour.
 const HIST_WINDOWS = { '24h': 864e5, '3d': 3 * 864e5, '7d': 7 * 864e5 };
 const HIST_GAP_MS = 2.5 * 3600 * 1000;
+const TICK_STEP = { '24h': 4 * 3600e3, '3d': 12 * 3600e3, '7d': 24 * 3600e3 };
 let probeHist = null;
 let histWindow = '24h';
+
+function fmtTick(d, win) {
+  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (win === '24h') return t;
+  if (win === '7d') return d.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+  return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+}
+function tickStart(startMs, stepMs) {
+  const d = new Date(startMs);
+  d.setHours(0, 0, 0, 0);           // align ticks to local midnight boundaries
+  let t = d.getTime();
+  while (t < startMs) t += stepMs;  // first boundary at/after the window start
+  return t;
+}
 
 function renderHistory() {
   const tl = $('timeline');
@@ -415,6 +438,7 @@ function renderHistory() {
     tl.innerHTML = '';
     $('histSummary').textContent = 'No download history yet.';
     $('histScale').innerHTML = '';
+    $('tlgrid').innerHTML = '';
     return;
   }
   const now = Date.now();
@@ -451,8 +475,21 @@ function renderHistory() {
   $('histSummary').textContent = known > 0
     ? `Working ${Math.round(okMs / known * 100)}% of the last ${histWindow}`
     : `No checks in the last ${histWindow}`;
-  $('histScale').innerHTML =
-    `<span>${new Date(start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span>now</span>`;
+  // Time axis: tick marks + labels aligned to local boundaries, with faint
+  // gridlines over the timeline so the timestamps line up with the segments.
+  const step = TICK_STEP[histWindow];
+  let grid = '', axis = '';
+  for (let t = tickStart(start, step); t <= now; t += step) {
+    const pos = (t - start) / winMs * 100;
+    if (pos < 0 || pos > 100) continue;
+    const tf = pos < 6 ? 'translateX(0)' : pos > 94 ? 'translateX(-100%)' : 'translateX(-50%)';
+    const p = pos.toFixed(3);
+    grid += `<span style="left:${p}%"></span>`;
+    axis += `<span class="tickmark" style="left:${p}%"></span>` +
+      `<span class="ticklabel" style="left:${p}%;transform:${tf}">${escapeHtml(fmtTick(new Date(t), histWindow))}</span>`;
+  }
+  $('tlgrid').innerHTML = grid;
+  $('histScale').innerHTML = axis;
 }
 document.querySelectorAll('.winbtn').forEach((b) => {
   b.onclick = () => {
