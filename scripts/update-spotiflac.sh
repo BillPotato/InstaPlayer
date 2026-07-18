@@ -42,6 +42,34 @@ for f in $GUI_ONLY; do
   rm -f "$DEST/backend/$f"
 done
 
+# --- Local patches (re-applied on every vendor; see VENDORING.md) ------------
+# Make the community retry budget configurable: upstream declares it as a const,
+# so rewrite it to a var and add a setter — spotiflac-dl --max-retries (surfaced
+# as TRACK_MAX_RETRIES in the FastAPI backend) needs to set it at runtime.
+echo "Re-applying local patches (configurable retry budget) ..."
+ENDPOINTS="$DEST/backend/community_endpoints.go"
+if grep -q '^const communityRateLimitMaxRetries' "$ENDPOINTS"; then
+  sed 's/^const communityRateLimitMaxRetries/var communityRateLimitMaxRetries/' \
+    "$ENDPOINTS" > "$ENDPOINTS.tmp" && mv "$ENDPOINTS.tmp" "$ENDPOINTS"
+fi
+cat > "$DEST/backend/community_retries_patch.go" <<'EOF'
+package backend
+
+// LOCAL PATCH (not from upstream) — recreated by scripts/update-spotiflac.sh.
+// Upstream declares communityRateLimitMaxRetries as a const; the script rewrites
+// it to a var (in community_endpoints.go) and adds this setter so the retry
+// budget is configurable via spotiflac-dl --max-retries.
+
+// SetCommunityRateLimitMaxRetries overrides how many times a community-endpoint
+// request retries on transient errors before giving up (values < 0 clamp to 0).
+func SetCommunityRateLimitMaxRetries(n int) {
+	if n < 0 {
+		n = 0
+	}
+	communityRateLimitMaxRetries = n
+}
+EOF
+
 echo "Tidying module (drops Wails) ..."
 ( cd "$DEST" && go mod tidy )
 
