@@ -1,0 +1,36 @@
+# Public-exposure overlay: TLS + rate limiting via Caddy, and uvicorn's :8000
+# taken off the network (only the proxy's 80/443 are published).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.public.yml up --build -d
+#
+# Set DOMAIN in .env (or the shell) to your real hostname for automatic
+# Let's Encrypt certificates. See "Public exposure" in the README.
+services:
+  backend:
+    # !override replaces (not merges) the base file's port list: the backend
+    # is reachable only through caddy, plus loopback for on-host debugging.
+    ports: !override
+      - "127.0.0.1:8000:8000"
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    ports:
+      - "80:80"        # ACME challenges + redirect to https
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./logs/caddy:/logs          # proxy access logs, separate from data/logs
+      - caddy_data:/data            # certificates
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

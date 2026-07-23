@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InstaPlayer - Status</title>
+<style>
+  :root {
+    --bg: #121212; --card: #181818; --card-hi: #242424;
+    --text: #ffffff; --dim: #a7a7a7; --accent: #1DB954; --red: #e74c3c;
+    --border: #2a2a2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh; padding: 24px 16px 48px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 20px; font-weight: 800; }
+  .light { width: 14px; height: 14px; border-radius: 50%; background: var(--dim); flex: none; }
+  .light.green { background: var(--accent); }
+  .light.red { background: var(--red); }
+  .light.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .meta { color: var(--dim); font-size: 12px; flex: 1; min-width: 160px; }
+  .card { background: var(--card); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .statusword { font-size: 22px; font-weight: 800; }
+  .statusword.good { color: var(--accent); }
+  .statusword.bad { color: var(--red); }
+  .reason { font-size: 13px; color: var(--dim); margin-top: 4px; }
+  .reason.bad { color: var(--red); }
+  #banner {
+    display: none; background: var(--card-hi); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
+    font-size: 13px; word-break: break-word;
+  }
+  #banner.show { display: block; }
+  #banner b { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
+  .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
+  .countdown.cooldown { color: var(--red); font-weight: 600; }
+  .timeline { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--card-hi); margin-top: 6px; }
+  .tlseg { height: 100%; }
+  .tlseg.ok { background: #22C55E; }
+  .tlseg.bad { background: var(--red); }
+  .tlseg.gap { background: #2a2a2a; }
+  .winbtn { background: var(--card-hi); color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+  .winbtn.active { background: var(--accent); color: #000; }
+  .tlwrap { position: relative; }
+  .tlgrid { position: absolute; inset: 0; pointer-events: none; }
+  .tlgrid > span { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.14); }
+  .histaxis { position: relative; height: 16px; margin-top: 4px; }
+  .histaxis .tickmark { position: absolute; top: 0; width: 1px; height: 4px; background: var(--border); }
+  .histaxis .ticklabel { position: absolute; top: 5px; font-size: 10px; color: var(--dim); white-space: nowrap; }
+  .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
+  .jobmeta { font-size: 13px; color: var(--dim); word-break: break-word; }
+  .jobmeta .good { color: var(--accent); }
+  .jobmeta .bad { color: var(--red); }
+  .navbtn {
+    background: var(--card-hi); color: var(--text); border: 0; border-radius: 6px;
+    padding: 6px 13px; font-size: 13px; line-height: 1.4; cursor: pointer;
+  }
+  .navbtn:hover:not(:disabled) { background: #333; }
+  .navbtn:disabled { opacity: 0.3; cursor: default; }
+  .howto { margin-left: 20px; color: var(--dim); font-size: 13px; }
+  .howto li { margin-bottom: 8px; }
+  .howto li:last-child { margin-bottom: 0; }
+  .howto b { color: var(--text); }
+  .howto .good { color: var(--accent); font-weight: 600; }
+  .howto .bad { color: var(--red); font-weight: 600; }
+  .howto code {
+    background: var(--card-hi); border-radius: 4px; padding: 1px 6px;
+    font: 12px ui-monospace, Consolas, "Courier New", monospace; color: var(--text);
+    word-break: break-all;
+  }
+  footer { color: var(--dim); font-size: 11px; text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="light" id="light"></div>
+    <h1>InstaPlayer</h1>
+    <div class="meta" id="meta">connecting…</div>
+    <span id="updatedAt" style="color:var(--dim);font-size:12px"></span>
+    <button class="navbtn" id="refreshBtn" title="Refresh">&#8635; Refresh</button>
+  </header>
+
+  <div id="banner"><b>Message from the admin</b><span id="bannerText"></span></div>
+
+  <div class="card">
+    <h2>Server</h2>
+    <div class="statusword" id="statusWord">…</div>
+    <div class="reason" id="reason"></div>
+    <div class="countdown" id="countdown"></div>
+    <div style="margin-top:14px">
+      <div class="row" style="justify-content:space-between">
+        <span style="font-size:13px;color:var(--dim)" id="histSummary"></span>
+        <span>
+          <button class="winbtn active" data-win="24h">24h</button>
+          <button class="winbtn" data-win="3d">3d</button>
+          <button class="winbtn" data-win="7d">7d</button>
+        </span>
+      </div>
+      <div class="tlwrap">
+        <div class="timeline" id="timeline"></div>
+        <div class="tlgrid" id="tlgrid"></div>
+      </div>
+      <div class="histaxis" id="histScale"></div>
+    </div>
+  </div>
+
+  <div class="card" id="jobCard" style="display:none">
+    <h2>Current download</h2>
+    <div class="bar"><div id="jobBar"></div></div>
+    <div class="jobmeta" id="jobCounts"></div>
+    <div class="jobmeta" id="jobCurrent" style="margin-top:4px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Last download</h2>
+    <div class="jobmeta" id="lastJob">-</div>
+  </div>
+
+  <div class="card">
+    <h2>How to use</h2>
+    <ol class="howto">
+      <li>Install the <b>InstaPlayer</b> app on your phone.</li>
+      <li>In the app, open <b>Settings</b> and set the server address to
+        <code id="serverUrl"></code> plus the API key (ask the admin for it), then Save.</li>
+      <li>Wait for the light above to be <span class="good">green</span> - that means
+        downloads are working. When it's <span class="bad">red</span>, importing is blocked;
+        check back later or watch this page.</li>
+      <li>In the app's <b>Import</b> tab, paste a Spotify playlist or album link,
+        pick a quality, and start the import.</li>
+      <li>Songs are transferred to your phone as they finish and play fully offline.
+        The server keeps no copy once your phone has them.</li>
+    </ol>
+  </div>
+
+  <footer id="uptime"></footer>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+let status = null;         // last /public/status body
+let statusFailed = false;  // last fetch errored (server unreachable)
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// ---- rendering ---------------------------------------------------------
+function render() {
+  const light = $('light');
+  const word = $('statusWord');
+  light.classList.remove('green', 'red', 'pulse');
+  word.classList.remove('good', 'bad');
+  const reason = $('reason');
+  reason.classList.remove('bad');
+  if (statusFailed || !status) {
+    light.classList.add('red');
+    word.classList.add('bad');
+    word.textContent = statusFailed ? 'Unreachable' : '…';
+    reason.textContent = statusFailed
+      ? 'The server did not respond - it may be off or your connection is down.' : '';
+    $('meta').textContent = statusFailed ? 'server unreachable' : 'connecting…';
+    $('banner').classList.remove('show');
+    return;
+  }
+  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  const probeOk = status.lastProbe ? status.lastProbe.ok : null;
+  const lastFailed = status.lastJob && status.lastJob.status === 'failed';
+  // Red = anything that blocks downloads right now (same rule as the app).
+  const bad = !status.importable || !!cooldownUntil || probeOk === false || lastFailed;
+  light.classList.add(bad ? 'red' : 'green');
+  if (status.probing) light.classList.add('pulse');
+  word.classList.add(bad ? 'bad' : 'good');
+  word.textContent = bad ? 'Not working' : 'Working';
+
+  // one specific, plain-words reason for the current state
+  if (!status.importable) {
+    reason.textContent = 'The download engine is not working - it may be down or out of sync with its upstream services.';
+  } else if (cooldownUntil) {
+    reason.textContent = 'The music sources are rate-limiting us - downloads resume when the timer below runs out.';
+  } else if (probeOk === false) {
+    reason.textContent = 'The last health check could not download a song, downloads are unavailable right now.';
+  } else if (lastFailed) {
+    reason.textContent = 'The most recent download failed, the next one may fail too.';
+  } else if (status.probing) {
+    reason.textContent = 'Running a health check right now…';
+  } else {
+    reason.textContent = 'Everything looks good, downloads should work.';
+  }
+  if (bad) reason.classList.add('bad');
+
+  // admin-set banner
+  $('banner').classList.toggle('show', !!status.message);
+  $('bannerText').textContent = status.message || '';
+
+  $('meta').textContent =
+    `quality: ${status.quality || '?'} · sources: ${(status.services || []).join(', ')}`;
+
+  // current download card
+  const job = status.activeJob;
+  $('jobCard').style.display = job ? '' : 'none';
+  if (job) {
+    const total = job.total || 0, done = job.completed || 0;
+    $('jobBar').style.width = total > 0 ? `${Math.min(100, Math.round(done / total * 100))}%` : '0%';
+    $('jobCounts').textContent = total > 0
+      ? `${done} of ${total} songs - ${Math.max(0, total - done)} to go`
+      : `${done} songs downloaded (total unknown yet)`;
+    $('jobCurrent').textContent = job.current ? `Now fetching: ${job.current}` : '';
+  }
+
+  const lj = status.lastJob;
+  const ljWord = { completed: 'Finished', failed: 'Failed', cancelled: 'Cancelled',
+                   running: 'Running', queued: 'Queued' };
+  $('lastJob').innerHTML = lj
+    ? `<span class="${lj.status === 'completed' ? 'good' : lj.status === 'failed' ? 'bad' : ''}">` +
+      `${ljWord[lj.status] || escapeHtml(lj.status)}</span>` +
+      (lj.updatedAt ? ` - ${new Date(lj.updatedAt).toLocaleString()}` : '')
+    : 'No downloads yet.';
+
+  $('uptime').textContent = status.uptimeSeconds != null
+    ? `Server up for ${fmtUptime(status.uptimeSeconds)}` : '';
+}
+
+// countdown line ticks locally every second between refreshes
+function tickCountdown() {
+  const el = $('countdown');
+  if (!status) { el.textContent = ''; return; }
+  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  if (status.probesPaused && !cooldownUntil) {
+    el.classList.remove('cooldown');
+    el.textContent = 'Health checks are paused by the admin.';
+    return;
+  }
+  const target = cooldownUntil || status.nextProbeAt;
+  if (!target) { el.textContent = ''; el.classList.remove('cooldown'); return; }
+  const ms = Date.parse(target) - Date.now();
+  if (cooldownUntil) {
+    el.classList.add('cooldown');
+    el.textContent = ms > 0 ? `Busy, back in about ${fmtDuration(ms)}` : 'Should be back any moment';
+  } else {
+    el.classList.remove('cooldown');
+    el.textContent = ms > 0 ? `Next health check in ${fmtDuration(ms)}` : 'Health check due now';
+  }
+}
+
+// ---- health timeline (same logic as the admin dashboard) ---------------
+const HIST_WINDOWS = { '24h': 864e5, '3d': 3 * 864e5, '7d': 7 * 864e5 };
+const HIST_GAP_MS = 2.5 * 3600 * 1000;
+const TICK_STEP = { '24h': 4 * 3600e3, '3d': 12 * 3600e3, '7d': 24 * 3600e3 };
+let histWindow = '24h';
+
+function fmtTick(d, win) {
+  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (win === '24h') return t;
+  if (win === '7d') return d.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+  return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+}
+function tickStart(startMs, stepMs) {
+  const d = new Date(startMs);
+  d.setHours(0, 0, 0, 0);           // align ticks to local midnight boundaries
+  let t = d.getTime();
+  while (t < startMs) t += stepMs;  // first boundary at/after the window start
+  return t;
+}
+function renderHistory() {
+  const tl = $('timeline');
+  const evs = (status && status.history) ? status.history.slice() : [];
+  evs.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  if (!evs.length) {
+    tl.innerHTML = '';
+    $('histSummary').textContent = 'No history yet.';
+    $('histScale').innerHTML = '';
+    $('tlgrid').innerHTML = '';
+    return;
+  }
+  const now = Date.now();
+  const winMs = HIST_WINDOWS[histWindow];
+  const start = now - winMs;
+  const segs = [];
+  let okMs = 0, badMs = 0;
+  const firstAt = Date.parse(evs[0].at);
+  if (firstAt > start) segs.push({ from: start, to: Math.min(firstAt, now), gap: true });
+  for (let i = 0; i < evs.length; i++) {
+    const t0 = Date.parse(evs[i].at);
+    const t1 = (i + 1 < evs.length) ? Date.parse(evs[i + 1].at) : now;
+    if (t1 <= start) continue;
+    const from = Math.max(t0, start);
+    const to = Math.min(t1, now);
+    if (to <= from) continue;
+    const trustedTo = Math.min(to, Math.max(from, t0 + HIST_GAP_MS));
+    if (trustedTo > from) {
+      const dur = trustedTo - from;
+      if (evs[i].ok) okMs += dur; else badMs += dur;
+      segs.push({ from, to: trustedTo, ok: evs[i].ok });
+    }
+    if (to > trustedTo) segs.push({ from: trustedTo, to, gap: true });
+  }
+  tl.innerHTML = segs.map((s) => {
+    const w = (s.to - s.from) / winMs * 100;
+    const cls = s.gap ? 'gap' : (s.ok ? 'ok' : 'bad');
+    const label = s.gap ? 'no data' : (s.ok ? 'working' : 'not working');
+    const title = `${new Date(s.from).toLocaleString()} → ${new Date(s.to).toLocaleString()} · ${label}`;
+    return `<span class="tlseg ${cls}" style="width:${w.toFixed(3)}%" title="${escapeHtml(title)}"></span>`;
+  }).join('');
+  const known = okMs + badMs;
+  $('histSummary').textContent = known > 0
+    ? `Working ${Math.round(okMs / known * 100)}% of the last ${histWindow}`
+    : `No checks in the last ${histWindow}`;
+  const step = TICK_STEP[histWindow];
+  let grid = '', axis = '';
+  for (let t = tickStart(start, step); t <= now; t += step) {
+    const pos = (t - start) / winMs * 100;
+    if (pos < 0 || pos > 100) continue;
+    const tf = pos < 6 ? 'translateX(0)' : pos > 94 ? 'translateX(-100%)' : 'translateX(-50%)';
+    const p = pos.toFixed(3);
+    grid += `<span style="left:${p}%"></span>`;
+    axis += `<span class="tickmark" style="left:${p}%"></span>` +
+      `<span class="ticklabel" style="left:${p}%;transform:${tf}">${escapeHtml(fmtTick(new Date(t), histWindow))}</span>`;
+  }
+  $('tlgrid').innerHTML = grid;
+  $('histScale').innerHTML = axis;
+}
+document.querySelectorAll('.winbtn').forEach((b) => {
+  b.onclick = () => {
+    histWindow = b.dataset.win;
+    document.querySelectorAll('.winbtn').forEach((x) => x.classList.toggle('active', x === b));
+    renderHistory();  // client-side only; no request
+  };
+});
+
+// ---- refresh (manual only — no polling, matching the admin page) --------
+async function refresh() {
+  const btn = $('refreshBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/public/status');
+    if (!res.ok) throw new Error(String(res.status));
+    status = await res.json();
+    statusFailed = false;
+  } catch (e) {
+    statusFailed = true;
+  } finally {
+    btn.disabled = false;
+  }
+  render();
+  renderHistory();
+  tickCountdown();
+  $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
+}
+$('refreshBtn').onclick = refresh;
+setInterval(tickCountdown, 1000);
+// the exact address the phone should use = however this page was reached
+$('serverUrl').textContent = window.location.origin;
+refresh();
+</script>
+</body>
+</html>

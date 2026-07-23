@@ -27,7 +27,13 @@ import (
 // string deliberately omits the "SpotiFLAC" prefix). The upstream commit lets
 // that card show which engine build is running; keep it in sync with
 // VENDORING.md when re-vendoring.
-const version = "Go engine (upstream 3f755f5)"
+const version = "Go engine (upstream v7.2.0 / 02cfd11)"
+
+// upstreamAppVersion identifies us as the SpotiFLAC release we vendored. The
+// community endpoints sign requests with the app version (X-Sig-App-Version),
+// so it must match a version the community server accepts. Keep in sync with
+// the vendored release in VENDORING.md.
+const upstreamAppVersion = "7.2.0"
 
 // filenameFormat "title-artist" is the upstream default: no `{` tokens, so the
 // downloaders emit "<Title> - <Artist>.flac". The embedded TITLE tag (always set
@@ -80,6 +86,8 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+
+	backend.AppVersion = upstreamAppVersion  // used to sign community requests
 
 	if *maxRetries >= 0 {
 		backend.SetCommunityRateLimitMaxRetries(*maxRetries)
@@ -255,7 +263,8 @@ func downloadOne(t trackInfo, stageDir, outDir, quality, qobuzToken string, serv
 				t.SpotifyID, stageDir, q, filenameFormat, false, t.TrackNumber,
 				t.Name, t.Artists, t.AlbumName, t.AlbumArtist, t.ReleaseDate, false,
 				t.CoverURL, false, t.TrackNumber, t.DiscNumber, t.TotalTracks, t.TotalDiscs,
-				t.Copyright, t.Publisher, "", separator, "", spotifyURL, allowFallback, false, false, false)
+				t.Copyright, t.Publisher, "", separator, "", spotifyURL, allowFallback,
+				false, "", false, false, false)  // allowAtmosFallback, atmosFallbackQuality, useFirstArtistOnly, useSingleGenre, embedGenre
 
 		case "amazon":
 			d := backend.NewAmazonDownloader()
@@ -263,7 +272,8 @@ func downloadOne(t trackInfo, stageDir, outDir, quality, qobuzToken string, serv
 				t.SpotifyID, stageDir, q, filenameFormat, "", "", false, t.TrackNumber,
 				t.Name, t.Artists, t.AlbumName, t.AlbumArtist, t.ReleaseDate, t.CoverURL,
 				t.TrackNumber, t.DiscNumber, t.TotalTracks, false, t.TotalDiscs,
-				t.Copyright, t.Publisher, "", separator, "", spotifyURL, false, false, false)
+				t.Copyright, t.Publisher, "", separator, "", spotifyURL, allowFallback,
+				false, "", false, false, false)  // allowAtmosFallback, atmosFallbackQuality, useFirstArtistOnly, useSingleGenre, embedGenre
 
 		default:
 			lastErr = fmt.Errorf("unknown service %q", svc)
