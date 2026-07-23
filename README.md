@@ -70,8 +70,6 @@ Every variable is optional except `API_KEY`.
 | `QOBUZ_TOKEN` | *(unset)* | Optional custom Qobuz API base URL (`https://…`) forwarded to the engine. Leave unset to use the built-in community endpoint |
 | `JOB_RETENTION_HOURS` | `6` | How long a finished job's files are kept on the server before auto-deletion |
 | `DATA_DIR` | `./data` | Where job files and the SQLite DB live inside the container |
-| `SPOOTY_BASE_URL` | *(unset)* | Base URL of an optional [Spooty](#spooty-fallback) instance used as a fallback when SpotiFLAC returns zero tracks, e.g. `http://spooty:3000`. Leave unset to disable the fallback entirely |
-| `SPOOTY_FORMAT` | `flac` | File extension Spooty is configured to produce (its own `FORMAT` env var). Must stay `flac` — the backend only scans for `*.flac` files |
 | `PROBE_SPOTIFY_URL` | *(a well-known track)* | Track downloaded by `POST /downloader/probe` to verify SpotiFLAC works end-to-end |
 | `PROBE_TIMEOUT_SECONDS` | `240` | Hard cap on a probe run |
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
@@ -87,39 +85,6 @@ engine's `version`.
 proxy APIs the engine uses are temporarily down or rate-limited. Options:
 - Set `DEFAULT_SERVICES=qobuz,amazon` to skip Tidal entirely when its proxies are dead
 - Try again later — the public proxy infrastructure is community-maintained and sometimes goes down
-- Set up the [Spooty fallback](#spooty-fallback) below so jobs still complete (at lower quality)
-  when SpotiFLAC can't get anything
-
-### Spooty fallback
-
-[Spooty](https://github.com/Raiper34/spooty) is a separate self-hosted downloader that
-resolves track metadata from the Spotify API and fetches **lossy audio from YouTube**. It is
-**not a replacement** for SpotiFLAC's lossless sources — it's wired in purely as a last-resort
-fallback for when SpotiFLAC comes back with zero tracks (e.g. all its proxies are down). When
-`SPOOTY_BASE_URL` is unset, none of this is used and behavior is unchanged.
-
-To enable it:
-
-1. Build a Spooty image from a working checkout (the upstream repo has been unstable —
-   you may need a fork): `docker build -t spooty:local /path/to/spooty/checkout`
-2. Create a [Spotify Developer App](https://developer.spotify.com/dashboard) to obtain a
-   `Client ID`/`Client Secret` (Spooty needs these to read playlist metadata — same
-   credentials Spooty's own README describes).
-3. Add to `backend/.env`:
-   ```
-   SPOOTY_BASE_URL=http://spooty:3000
-   SPOOTY_SPOTIFY_CLIENT_ID=your_client_id
-   SPOOTY_SPOTIFY_CLIENT_SECRET=your_client_secret
-   ```
-4. Start everything including the Spooty container (it's behind a Compose profile so it
-   doesn't run unless you ask for it):
-   ```bash
-   docker compose --profile spooty up --build
-   ```
-
-The backend reaches Spooty over the Compose network at `http://spooty:3000` — no port needs
-publishing. Keep Spooty's `FORMAT` set to `flac` (already the default in `docker-compose.yml`)
-so its output matches `SPOOTY_FORMAT` and gets picked up by the ingestion scanner.
 
 ## Public exposure (TLS proxy)
 
