@@ -141,6 +141,21 @@ Point the phone app at `https://your-domain` (no port). Without a `DOMAIN`, Cadd
 will reject it; use a real domain (a free DuckDNS name works) for production. If you'd rather
 not expose anything, skip this overlay entirely and use Tailscale/WireGuard as before.
 
+## Backups
+
+Everything the backend needs to survive a disk loss lives in `backend/data/`: the SQLite job
+DB, per-day logs, probe cache + health history, admin state, and the engine home with the
+community session file. `./scripts/backup-data.sh` tars it (minus the disposable per-job
+download dirs) into `./backups/`, keeping the newest 14 (`KEEP=N` to change). Run it from
+cron, e.g. daily at 04:00:
+
+```
+0 4 * * * cd /path/to/InstaPlayer && ./scripts/backup-data.sh >> backups/backup.log 2>&1
+```
+
+Copy `backups/` somewhere off-machine if the server disk is the thing you're insuring
+against. Restoring = stop the stack, untar over `backend/data/`, start it again.
+
 ## Security
 
 The backend must not be exposed unauthenticated. Use the bearer `API_KEY` (long and random —
