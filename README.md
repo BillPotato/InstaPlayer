@@ -75,11 +75,28 @@ Every variable is optional except `API_KEY`.
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
 | `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` engine binary. Unset = resolve it from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
 | `LOG_RETENTION_DAYS` | `30` | How many days of per-day log files (`data/logs/YYYY-MM-DD.jsonl`, browsable in the `/admin` dashboard) to keep; older ones are pruned on startup. `0` = keep forever |
+| `SPOTIFLAC_ENGINE_HOME` | `/data/engine-home` (Docker) | Directory the engine uses as its `$HOME`. Its community-endpoint session lives at `<here>/.spotiflac/community_session.json` — see [Community verification](#community-verification-one-time-captcha). Unset = engine inherits the server process's HOME |
 
 The engine is the vendored **SpotiFLAC Go binary** (`backend/spotiflac-go/`), built from
 source into the image — not a pip package. To pull a newer upstream, run
 `scripts/update-spotiflac.sh` and rebuild the image; `GET /downloader/status` reports the
 engine's `version`.
+
+### Community verification (one-time captcha)
+
+Since SpotiFLAC v7.2.0 the community download endpoints require a one-time human
+verification (a Cloudflare check in a browser) that issues a signing **session**. The
+headless engine can't open a browser, so create the session on your PC and copy it in:
+
+1. Run the **official SpotiFLAC desktop app** on your PC and start any download — it opens
+   the verification page; solve it once. That writes
+   `%USERPROFILE%\.spotiflac\community_session.json` (Linux/macOS: `~/.spotiflac/`).
+2. Copy that file to the server at
+   `data/engine-home/.spotiflac/community_session.json` (inside the mounted data volume;
+   create the folders if needed), then it's picked up on the next download — no restart.
+3. When the session eventually expires, downloads fail with verification errors in the
+   `/admin` logs (e.g. `browser integration is not ready` or `session exchange returned
+   HTTP 401`) — repeat steps 1–2.
 
 **Tip:** If downloads are consistently failing, the most common cause is that the third-party
 proxy APIs the engine uses are temporarily down or rate-limited. Options:

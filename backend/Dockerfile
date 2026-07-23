@@ -35,6 +35,11 @@ COPY --from=engine /out/spotiflac-dl /usr/local/bin/spotiflac-dl
 COPY app ./app
 
 ENV DATA_DIR=/data
+# The engine treats this as its $HOME. Since SpotiFLAC v7.2.0 the community
+# endpoints need a session file the desktop app creates after a one-time
+# captcha; place it (from the host) at data/engine-home/.spotiflac/community_session.json
+# — see "Community verification" in the README.
+ENV SPOTIFLAC_ENGINE_HOME=/data/engine-home
 VOLUME ["/data"]
 EXPOSE 8000
 

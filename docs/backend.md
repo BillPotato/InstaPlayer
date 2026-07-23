@@ -92,6 +92,12 @@ a `Track [1/12] Title — Artist` line gives both the total (`12`) and the
 current track label shown on the progress bar. If the engine exits with an
 error, the last line of its output is surfaced as the failure reason.
 
+It also launches the engine with `$HOME` pointed at `SPOTIFLAC_ENGINE_HOME`
+(`/data/engine-home` in Docker): since v7.2.0 the engine's community endpoints
+need a session file at `$HOME/.spotiflac/community_session.json`, created once
+by the official desktop app (a browser captcha) and copied in by the admin —
+see "Community verification" in the README.
+
 ### `jobs.py` — the engine that runs everything
 
 This is the core of the backend. When a download job starts, this file:

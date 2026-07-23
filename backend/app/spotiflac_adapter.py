@@ -106,6 +106,32 @@ def _parse_line(line: str, cb: ProgressCb) -> None:
         cb({"total": int(header.group(2)), "current": _clean_current(header.group(3))})
 
 
+def engine_home() -> Path | None:
+    """Directory the engine uses as ``$HOME``, from ``SPOTIFLAC_ENGINE_HOME``.
+
+    Since v7.2.0 the community endpoints need an HMAC session stored at
+    ``$HOME/.spotiflac/community_session.json``. The headless engine can't
+    create one (the one-time verification needs a browser), so the admin copies
+    the file the official desktop app created after its captcha. Pointing the
+    engine's HOME at a dir under the mounted data volume (the Docker image sets
+    ``SPOTIFLAC_ENGINE_HOME=/data/engine-home``) makes that file easy to drop
+    in from the host and persistent across restarts. Unset → engine inherits
+    our own HOME (fine for local dev).
+    """
+    home = os.environ.get("SPOTIFLAC_ENGINE_HOME")
+    return Path(home) if home else None
+
+
+def _engine_env() -> dict | None:
+    home = engine_home()
+    if home is None:
+        return None  # inherit our environment untouched
+    with contextlib.suppress(Exception):
+        home.mkdir(parents=True, exist_ok=True)
+    # HOME for Linux (os.UserHomeDir), USERPROFILE for Windows dev runs.
+    return {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+
+
 def run_spotiflac(
     url: str,
     output_dir: Path,
@@ -148,6 +174,7 @@ def run_spotiflac(
             bufsize=1,
             encoding="utf-8",
             errors="replace",
+            env=_engine_env(),  # community session lives under the engine HOME
         )
     except OSError as exc:
         raise SpotiFlacError(f"failed to launch {BINARY_NAME}: {exc}") from exc
