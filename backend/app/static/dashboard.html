@@ -160,6 +160,25 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>Controls</h2>
+    <div class="row">
+      <input type="text" id="msgInput" placeholder="Public message shown on the user page…"
+             maxlength="500" autocomplete="off"
+             style="flex:1;min-width:200px;background:var(--card-hi);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px">
+      <button id="msgSave">Set message</button>
+      <button class="minibtn" id="msgClear">Clear</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="probeToggle">Pause probes</button>
+      <span id="probeToggleState" style="font-size:13px;color:var(--dim)"></span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="danger" id="histClear">Clear health history</button>
+      <span style="font-size:13px;color:var(--dim)">Wipes the green/red timeline for a clean record.</span>
+    </div>
+  </div>
+
   <div class="card" id="jobCard" style="display:none">
     <h2>Active download</h2>
     <div class="jobmeta" id="jobTitle"></div>
@@ -341,6 +360,11 @@ function tickCountdown() {
   const el = $('countdown');
   if (!status) { el.textContent = ''; return; }
   const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  if (adminSettings && adminSettings.probesPaused && !cooldownUntil) {
+    el.classList.remove('cooldown');
+    el.textContent = 'Periodic probes are paused.';
+    return;
+  }
   const target = cooldownUntil || status.nextProbeAt;
   if (!target) { el.textContent = ''; el.classList.remove('cooldown'); return; }
   const ms = Date.parse(target) - Date.now();
@@ -356,6 +380,65 @@ function tickCountdown() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+// ---- admin controls (public message, probe pause, history wipe) ---------
+let adminSettings = null;   // last GET /admin/settings body
+
+function renderControls() {
+  if (!adminSettings) return;
+  const paused = !!adminSettings.probesPaused;
+  $('probeToggle').textContent = paused ? 'Resume probes' : 'Pause probes';
+  $('probeToggleState').textContent = paused
+    ? 'Periodic health checks are OFF — the timeline will show gaps.' : '';
+  // Don't clobber the input while the admin is typing in it.
+  if (document.activeElement !== $('msgInput')) {
+    $('msgInput').value = adminSettings.message || '';
+  }
+}
+async function pollControls() {
+  if (!apiKey) return;
+  try {
+    const res = await api('/admin/settings');
+    if (!res.ok) return;
+    adminSettings = await res.json();
+    renderControls();
+  } catch (e) { /* transient */ }
+}
+async function putSettings(body, okMsg) {
+  try {
+    const res = await api('/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { toast(`Failed (${res.status})`); return; }
+    adminSettings = await res.json();
+    renderControls();
+    toast(okMsg);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+}
+$('msgSave').onclick = () => {
+  const v = $('msgInput').value.trim();
+  if (!v) { toast('Type a message first (or use Clear)'); return; }
+  putSettings({ message: v }, 'Public message set');
+};
+$('msgClear').onclick = () => putSettings({ message: '' }, 'Public message cleared');
+$('probeToggle').onclick = () => {
+  const paused = !!(adminSettings && adminSettings.probesPaused);
+  putSettings({ probesPaused: !paused }, paused ? 'Probes resumed' : 'Probes paused');
+};
+$('histClear').onclick = async () => {
+  if (!confirm('Wipe the download-health timeline?')) return;
+  try {
+    const res = await api('/downloader/history', { method: 'DELETE' });
+    toast(res.ok ? 'History cleared' : `Failed (${res.status})`);
+  } catch (e) {
+    if (e.message !== 'unauthorized') toast('Could not reach server');
+  }
+  pollHistory();
+};
 
 // ---- system / storage ---------------------------------------------------
 let system = null;
@@ -768,7 +851,7 @@ async function refreshAll() {
   const btn = $('refreshAll');
   btn.disabled = true;
   try {
-    await Promise.all([pollStatus(), fetchLogs(false), pollJobs(), pollSystem(), pollHistory(), refreshDays()]);
+    await Promise.all([pollStatus(), fetchLogs(false), pollJobs(), pollSystem(), pollHistory(), refreshDays(), pollControls()]);
     $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
   } finally {
     btn.disabled = false;
@@ -781,7 +864,7 @@ async function boot() {
   // One-time initial load (not polling): calendar + today's logs, then the rest.
   await refreshDays();
   switchDay(currentDay || serverToday);
-  await Promise.all([pollStatus(), pollJobs(), pollSystem(), pollHistory()]);
+  await Promise.all([pollStatus(), pollJobs(), pollSystem(), pollHistory(), pollControls()]);
   $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
 }
 if (!apiKey) showKeyForm(false);
