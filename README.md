@@ -15,14 +15,6 @@ app/       React Native (Expo) mobile client — see app/README.md for setup
 docs/      Backend technical reference
 ```
 
-## ⚠️ Legal / distribution note
-
-The backend downloads tracks from third-party hi-fi services via ISRC matching, which violates
-those services' Terms of Service. **Keep the download capability strictly on your own
-self-hosted backend and use it for personal use only.** The mobile client itself is a neutral
-offline media player and contains no downloaders — it connects to a backend URL that *you*
-supply.
-
 ## Quick start (backend)
 
 ```bash
