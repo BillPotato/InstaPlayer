@@ -52,6 +52,16 @@ class JobCreate(BaseModel):
         return v
 
 
+class AdminSettingsUpdate(BaseModel):
+    """Partial update for PUT /admin/settings — omitted fields are unchanged.
+
+    ``message`` is the banner shown on the public page at "/"; send an empty
+    string to clear it. ``probesPaused`` toggles the periodic health probes.
+    """
+    message: str | None = None
+    probesPaused: bool | None = None
+
+
 class ManifestTrack(BaseModel):
     n: int
     title: str

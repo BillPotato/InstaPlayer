@@ -23,6 +23,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
+from . import adminstate
 from .config import Settings
 from .db import SessionLocal
 from .models import Job
@@ -104,6 +105,14 @@ def probe_history() -> dict:
     green/red timeline, plus a pass count."""
     ok_count = sum(1 for x in _probe_history if x.get("ok"))
     return {"history": list(_probe_history), "okCount": ok_count, "total": len(_probe_history)}
+
+
+def clear_history(settings: Settings) -> None:
+    """Wipe the health timeline (admin action — e.g. after fixing an outage,
+    so the dashboard starts a clean record)."""
+    _probe_history.clear()
+    _persist_history(settings)
+    log.info("Download-health history cleared by admin")
 
 
 def record_download_outcome(settings: Settings, ok: bool, detail: str | None = None) -> None:
@@ -382,7 +391,12 @@ async def periodic_probe_loop(settings: Settings, has_active_jobs) -> None:
     log.info("Periodic downloader probe every %.0f min", settings.probe_interval_minutes)
     while True:
         try:
-            if not probe_is_fresh(settings) and not has_active_jobs() and not _probe_lock.locked():
+            if (
+                not adminstate.probes_paused()  # admin kill-switch (dashboard toggle)
+                and not probe_is_fresh(settings)
+                and not has_active_jobs()
+                and not _probe_lock.locked()
+            ):
                 await probe(settings)
         except asyncio.CancelledError:
             return

@@ -33,6 +33,8 @@ docker compose up --build
 # Admin dashboard at http://localhost:8000/admin — status light, force-probe
 # button, live logs, active-download progress + cancel, cooldown countdown.
 # It asks for your API_KEY on first load (stored in the browser).
+# User status page at http://localhost:8000/ — public, no key: is the server
+# working, health timeline, current-download progress, last download outcome.
 ```
 
 Resolve + download a playlist:
@@ -119,7 +121,44 @@ The backend reaches Spooty over the Compose network at `http://spooty:3000` — 
 publishing. Keep Spooty's `FORMAT` set to `flac` (already the default in `docker-compose.yml`)
 so its output matches `SPOOTY_FORMAT` and gets picked up by the ingestion scanner.
 
+## Public exposure (TLS proxy)
+
+For serving beyond your LAN/VPN, a Caddy reverse proxy is included as a compose overlay. It
+terminates TLS (automatic Let's Encrypt), rate-limits the unauthenticated pages (`/` and
+`/public/status`: 10 req/s per IP; everything else 30 req/s), writes access logs separately
+from the app's own logs (`backend/logs/caddy/access.log`), and takes uvicorn's `:8000` off
+the network — only 80/443 are published (the backend stays reachable on the host at
+`127.0.0.1:8000` for debugging).
+
+```bash
+cd backend
+echo "DOMAIN=music.example.com" >> .env   # a hostname that resolves to this server
+docker compose -f docker-compose.yml -f docker-compose.public.yml up --build -d
+```
+
+Point the phone app at `https://your-domain` (no port). Without a `DOMAIN`, Caddy serves
+`localhost` with a self-signed internal-CA certificate — fine for a look around, but phones
+will reject it; use a real domain (a free DuckDNS name works) for production. If you'd rather
+not expose anything, skip this overlay entirely and use Tailscale/WireGuard as before.
+
+## Backups
+
+Everything the backend needs to survive a disk loss lives in `backend/data/`: the SQLite job
+DB, per-day logs, probe cache + health history, admin state, and the engine home with the
+community session file. `./scripts/backup-data.sh` tars it (minus the disposable per-job
+download dirs) into `./backups/`, keeping the newest 14 (`KEEP=N` to change). Run it from
+cron, e.g. daily at 04:00:
+
+```
+0 4 * * * cd /path/to/InstaPlayer && ./scripts/backup-data.sh >> backups/backup.log 2>&1
+```
+
+Copy `backups/` somewhere off-machine if the server disk is the thing you're insuring
+against. Restoring = stop the stack, untar over `backend/data/`, start it again.
+
 ## Security
 
-The backend must not be exposed unauthenticated. Use the bearer `API_KEY`, and expose it over
-a VPN (Tailscale/WireGuard) or a TLS reverse proxy rather than a raw open port.
+The backend must not be exposed unauthenticated. Use the bearer `API_KEY` (long and random —
+e.g. `openssl rand -hex 32` — never the placeholder), and expose the server only through the
+TLS proxy overlay above or over a VPN (Tailscale/WireGuard); never publish raw `:8000` to the
+internet, since the API key would travel unencrypted.
