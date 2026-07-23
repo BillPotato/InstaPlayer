@@ -1,7 +1,7 @@
-# InstaPlayer — Offline FLAC Player
+# InstaPlayer
 
 A phone-based **offline music player** (Android-first, React Native/Expo) paired with a
-**self-hosted backend**. You hand the backend a Spotify playlist/album URL; it resolves each
+**self-hosted backend** FLAC downloader. You hand the backend a Spotify playlist/album URL; it resolves each
 track's ISRC, downloads the matching lossless FLAC from hi-fi sources via
 [SpotiFLAC](https://github.com/spotbye/SpotiFLAC), tags it, and fetches synced lyrics. The app
 pulls those files to the phone and plays them **fully offline** — the phone owns the entire
