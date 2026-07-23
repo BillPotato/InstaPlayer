@@ -121,7 +121,29 @@ The backend reaches Spooty over the Compose network at `http://spooty:3000` — 
 publishing. Keep Spooty's `FORMAT` set to `flac` (already the default in `docker-compose.yml`)
 so its output matches `SPOOTY_FORMAT` and gets picked up by the ingestion scanner.
 
+## Public exposure (TLS proxy)
+
+For serving beyond your LAN/VPN, a Caddy reverse proxy is included as a compose overlay. It
+terminates TLS (automatic Let's Encrypt), rate-limits the unauthenticated pages (`/` and
+`/public/status`: 10 req/s per IP; everything else 30 req/s), writes access logs separately
+from the app's own logs (`backend/logs/caddy/access.log`), and takes uvicorn's `:8000` off
+the network — only 80/443 are published (the backend stays reachable on the host at
+`127.0.0.1:8000` for debugging).
+
+```bash
+cd backend
+echo "DOMAIN=music.example.com" >> .env   # a hostname that resolves to this server
+docker compose -f docker-compose.yml -f docker-compose.public.yml up --build -d
+```
+
+Point the phone app at `https://your-domain` (no port). Without a `DOMAIN`, Caddy serves
+`localhost` with a self-signed internal-CA certificate — fine for a look around, but phones
+will reject it; use a real domain (a free DuckDNS name works) for production. If you'd rather
+not expose anything, skip this overlay entirely and use Tailscale/WireGuard as before.
+
 ## Security
 
-The backend must not be exposed unauthenticated. Use the bearer `API_KEY`, and expose it over
-a VPN (Tailscale/WireGuard) or a TLS reverse proxy rather than a raw open port.
+The backend must not be exposed unauthenticated. Use the bearer `API_KEY` (long and random —
+e.g. `openssl rand -hex 32` — never the placeholder), and expose the server only through the
+TLS proxy overlay above or over a VPN (Tailscale/WireGuard); never publish raw `:8000` to the
+internet, since the API key would travel unencrypted.

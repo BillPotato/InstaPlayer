@@ -1,0 +1,48 @@
+# Public-facing reverse proxy for the InstaPlayer backend.
+# Used by docker-compose.public.yml; see "Public exposure" in the README.
+#
+# DOMAIN must be a hostname that resolves to this server for automatic
+# Let's Encrypt TLS. With the default (localhost) Caddy issues a self-signed
+# certificate from its internal CA — fine for trying it out, but phones will
+# reject it; use a real domain (or DNS via Tailscale/DuckDNS) for production.
+
+{
+	# rate_limit is a third-party handler; give it a spot in the middleware
+	# chain (before the proxy so limited requests never reach the backend).
+	order rate_limit before reverse_proxy
+}
+
+{$DOMAIN:localhost} {
+	encode gzip
+
+	# Proxy access logs, kept separate from the app's own logs (data/logs/)
+	# so there's an independent attribution trail. Mounted to ./logs/caddy/.
+	log {
+		output file /logs/access.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+	}
+
+	# The unauthenticated surface gets the tightest limit.
+	@public path / /public/status
+	rate_limit @public {
+		zone public {
+			key {remote_host}
+			events 10
+			window 1s
+		}
+	}
+
+	# Everything else (authed API + admin) — generous, but still a lid.
+	rate_limit {
+		zone api {
+			key {remote_host}
+			events 30
+			window 1s
+		}
+	}
+
+	# WebSocket upgrades (/jobs/{id}/events) are handled automatically.
+	reverse_proxy backend:8000
+}
