@@ -130,6 +130,8 @@ This is the web server file. It defines all the URLs your phone can call:
 | `GET /admin/system` | Storage/health report: disk usage of the data volume, transient job-store size + active-dir count, log-file size + day count, server uptime, and a read-only summary of the effective config |
 | `GET /logs` | Server log lines for one day (job lifecycle + engine output), written to a per-day file `data/logs/YYYY-MM-DD.jsonl`. `?date=YYYY-MM-DD` (default today); `?after=<lineOffset>` returns only new lines so today's tail polls cheaply. Old files are pruned after `LOG_RETENTION_DAYS` |
 | `GET /logs/days` | The days that have log files, plus the server's current day — powers the dashboard's calendar and prev/next arrows |
+| `GET /` | The user status page — public, no key. Shows only the sanitized `GET /public/status` data: Working/Not-working, cooldown countdown, the green/red health timeline, current-download progress, last download outcome, uptime. Manual refresh only |
+| `GET /public/status` | Unauthenticated, sanitized status backing the page above. Strips everything sensitive (job ids, Spotify URLs, error details, logs, config) — those stay behind the Bearer-authed endpoints |
 | `GET /admin` | The admin dashboard — a single self-contained web page (no auth on the page itself; it asks for the API key and calls the endpoints above). Status light + a proportional green/red download-health timeline (probes + real jobs, with a 24h/3d/7d window), force-probe with cooldown countdown, active-download progress + cancel, a recent-jobs table (cancel/delete), a storage/health panel, and day-by-day logs with a calendar, prev/next arrows, search, level filter, and export |
 
 It also runs two things at startup:

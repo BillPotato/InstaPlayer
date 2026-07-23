@@ -33,6 +33,8 @@ docker compose up --build
 # Admin dashboard at http://localhost:8000/admin — status light, force-probe
 # button, live logs, active-download progress + cancel, cooldown countdown.
 # It asks for your API_KEY on first load (stored in the browser).
+# User status page at http://localhost:8000/ — public, no key: is the server
+# working, health timeline, current-download progress, last download outcome.
 ```
 
 Resolve + download a playlist:
