@@ -97,10 +97,19 @@ def health() -> dict[str, str]:
 # page prompts for the API key on first load / 401.
 _DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
 
+# The user page at "/" is fully public: it renders only the sanitized
+# GET /public/status payload (no key prompt, no admin actions).
+_HOME = Path(__file__).parent / "static" / "home.html"
+
 
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 def admin_dashboard() -> HTMLResponse:
     return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def home_page() -> HTMLResponse:
+    return HTMLResponse(_HOME.read_text(encoding="utf-8"))
 
 
 @app.get("/admin/system", dependencies=[Depends(require_auth)])
