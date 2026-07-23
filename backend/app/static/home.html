@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>InstaPlayer — Status</title>
+<title>InstaPlayer - Status</title>
 <style>
   :root {
     --bg: #121212; --card: #181818; --card-hi: #242424;
@@ -123,7 +123,7 @@
 
   <div class="card">
     <h2>Last download</h2>
-    <div class="jobmeta" id="lastJob">—</div>
+    <div class="jobmeta" id="lastJob">-</div>
   </div>
 
   <div class="card">
@@ -132,7 +132,7 @@
       <li>Install the <b>InstaPlayer</b> app on your phone.</li>
       <li>In the app, open <b>Settings</b> and set the server address to
         <code id="serverUrl"></code> plus the API key (ask the admin for it), then Save.</li>
-      <li>Wait for the light above to be <span class="good">green</span> — that means
+      <li>Wait for the light above to be <span class="good">green</span> - that means
         downloads are working. When it's <span class="bad">red</span>, importing is blocked;
         check back later or watch this page.</li>
       <li>In the app's <b>Import</b> tab, paste a Spotify playlist or album link,
@@ -180,7 +180,7 @@ function render() {
     word.classList.add('bad');
     word.textContent = statusFailed ? 'Unreachable' : '…';
     reason.textContent = statusFailed
-      ? 'The server did not respond — it may be off or your connection is down.' : '';
+      ? 'The server did not respond - it may be off or your connection is down.' : '';
     $('meta').textContent = statusFailed ? 'server unreachable' : 'connecting…';
     $('banner').classList.remove('show');
     return;
@@ -197,17 +197,17 @@ function render() {
 
   // one specific, plain-words reason for the current state
   if (!status.importable) {
-    reason.textContent = 'The download engine is not working — it may be down or out of sync with its upstream services.';
+    reason.textContent = 'The download engine is not working - it may be down or out of sync with its upstream services.';
   } else if (cooldownUntil) {
-    reason.textContent = 'The music sources are rate-limiting us — downloads resume when the timer below runs out.';
+    reason.textContent = 'The music sources are rate-limiting us - downloads resume when the timer below runs out.';
   } else if (probeOk === false) {
-    reason.textContent = 'The last health check could not download a song — downloads are unavailable right now.';
+    reason.textContent = 'The last health check could not download a song, downloads are unavailable right now.';
   } else if (lastFailed) {
-    reason.textContent = 'The most recent download failed — the next one may fail too.';
+    reason.textContent = 'The most recent download failed, the next one may fail too.';
   } else if (status.probing) {
     reason.textContent = 'Running a health check right now…';
   } else {
-    reason.textContent = 'Everything looks good — downloads should work.';
+    reason.textContent = 'Everything looks good, downloads should work.';
   }
   if (bad) reason.classList.add('bad');
 
@@ -225,7 +225,7 @@ function render() {
     const total = job.total || 0, done = job.completed || 0;
     $('jobBar').style.width = total > 0 ? `${Math.min(100, Math.round(done / total * 100))}%` : '0%';
     $('jobCounts').textContent = total > 0
-      ? `${done} of ${total} songs — ${Math.max(0, total - done)} to go`
+      ? `${done} of ${total} songs - ${Math.max(0, total - done)} to go`
       : `${done} songs downloaded (total unknown yet)`;
     $('jobCurrent').textContent = job.current ? `Now fetching: ${job.current}` : '';
   }
@@ -236,7 +236,7 @@ function render() {
   $('lastJob').innerHTML = lj
     ? `<span class="${lj.status === 'completed' ? 'good' : lj.status === 'failed' ? 'bad' : ''}">` +
       `${ljWord[lj.status] || escapeHtml(lj.status)}</span>` +
-      (lj.updatedAt ? ` — ${new Date(lj.updatedAt).toLocaleString()}` : '')
+      (lj.updatedAt ? ` - ${new Date(lj.updatedAt).toLocaleString()}` : '')
     : 'No downloads yet.';
 
   $('uptime').textContent = status.uptimeSeconds != null
@@ -258,7 +258,7 @@ function tickCountdown() {
   const ms = Date.parse(target) - Date.now();
   if (cooldownUntil) {
     el.classList.add('cooldown');
-    el.textContent = ms > 0 ? `Busy — back in about ${fmtDuration(ms)}` : 'Should be back any moment';
+    el.textContent = ms > 0 ? `Busy, back in about ${fmtDuration(ms)}` : 'Should be back any moment';
   } else {
     el.classList.remove('cooldown');
     el.textContent = ms > 0 ? `Next health check in ${fmtDuration(ms)}` : 'Health check due now';
