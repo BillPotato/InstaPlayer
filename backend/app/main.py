@@ -130,6 +130,47 @@ def get_logs(date: str | None = None, after: int = 0, limit: int = 2000) -> dict
         raise HTTPException(400, "date must be in YYYY-MM-DD format")
 
 
+@app.get("/public/status")
+async def public_status(
+    settings: Settings = Depends(get_settings),
+    manager: JobManager = Depends(get_job_manager),
+) -> dict:
+    """Unauthenticated, sanitized status for the user page at ``/``.
+
+    Only what a normal user cares about: is the server working, current
+    download progress, last download outcome, and the health timeline. No job
+    ids, Spotify URLs, error details, logs, or config — those stay behind the
+    Bearer-authed admin endpoints.
+    """
+    full = await downloader.status(settings, manager.has_active_jobs())
+    hist = downloader.probe_history()
+    active, last, probe = full["activeJob"], full["lastJob"], full["lastProbe"]
+    uptime = (datetime.now(timezone.utc) - _STARTED_AT).total_seconds()
+    return {
+        "importable": full["importable"],
+        "quality": full["quality"],
+        "services": full["services"],
+        "probing": full["probing"],
+        "nextProbeAt": full["nextProbeAt"],
+        "uptimeSeconds": round(uptime),
+        "activeJob": (
+            {"total": active["total"], "completed": active["completed"], "current": active["current"]}
+            if active else None
+        ),
+        "lastJob": (
+            {"status": last["status"], "updatedAt": last["updatedAt"]} if last else None
+        ),
+        "lastProbe": (
+            {"ok": probe.get("ok"), "at": probe.get("at"), "cooldownUntil": probe.get("cooldownUntil")}
+            if probe else None
+        ),
+        "history": [
+            {"at": x.get("at"), "ok": bool(x.get("ok")), "source": x.get("source")}
+            for x in hist["history"]
+        ],
+    }
+
+
 # --------------------------------------------------------------------------
 # Downloader availability (SpotiFLAC's upstream services break regularly)
 # --------------------------------------------------------------------------
