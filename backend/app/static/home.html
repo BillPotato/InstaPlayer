@@ -31,6 +31,15 @@
   .statusword { font-size: 22px; font-weight: 800; }
   .statusword.good { color: var(--accent); }
   .statusword.bad { color: var(--red); }
+  .reason { font-size: 13px; color: var(--dim); margin-top: 4px; }
+  .reason.bad { color: var(--red); }
+  #banner {
+    display: none; background: var(--card-hi); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
+    font-size: 13px; word-break: break-word;
+  }
+  #banner.show { display: block; }
+  #banner b { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
   .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
   .countdown.cooldown { color: var(--red); font-weight: 600; }
   .timeline { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--card-hi); margin-top: 6px; }
@@ -70,9 +79,12 @@
     <button class="navbtn" id="refreshBtn" title="Refresh">&#8635; Refresh</button>
   </header>
 
+  <div id="banner"><b>Message from the admin</b><span id="bannerText"></span></div>
+
   <div class="card">
     <h2>Server</h2>
     <div class="statusword" id="statusWord">…</div>
+    <div class="reason" id="reason"></div>
     <div class="countdown" id="countdown"></div>
     <div style="margin-top:14px">
       <div class="row" style="justify-content:space-between">
@@ -134,11 +146,16 @@ function render() {
   const word = $('statusWord');
   light.classList.remove('green', 'red', 'pulse');
   word.classList.remove('good', 'bad');
+  const reason = $('reason');
+  reason.classList.remove('bad');
   if (statusFailed || !status) {
     light.classList.add('red');
     word.classList.add('bad');
     word.textContent = statusFailed ? 'Unreachable' : '…';
+    reason.textContent = statusFailed
+      ? 'The server did not respond — it may be off or your connection is down.' : '';
     $('meta').textContent = statusFailed ? 'server unreachable' : 'connecting…';
+    $('banner').classList.remove('show');
     return;
   }
   const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
@@ -150,6 +167,26 @@ function render() {
   if (status.probing) light.classList.add('pulse');
   word.classList.add(bad ? 'bad' : 'good');
   word.textContent = bad ? 'Not working' : 'Working';
+
+  // one specific, plain-words reason for the current state
+  if (!status.importable) {
+    reason.textContent = 'The download engine is not working — it may be down or out of sync with its upstream services.';
+  } else if (cooldownUntil) {
+    reason.textContent = 'The music sources are rate-limiting us — downloads resume when the timer below runs out.';
+  } else if (probeOk === false) {
+    reason.textContent = 'The last health check could not download a song — downloads are unavailable right now.';
+  } else if (lastFailed) {
+    reason.textContent = 'The most recent download failed — the next one may fail too.';
+  } else if (status.probing) {
+    reason.textContent = 'Running a health check right now…';
+  } else {
+    reason.textContent = 'Everything looks good — downloads should work.';
+  }
+  if (bad) reason.classList.add('bad');
+
+  // admin-set banner
+  $('banner').classList.toggle('show', !!status.message);
+  $('bannerText').textContent = status.message || '';
 
   $('meta').textContent =
     `quality: ${status.quality || '?'} · sources: ${(status.services || []).join(', ')}`;
@@ -184,6 +221,11 @@ function tickCountdown() {
   const el = $('countdown');
   if (!status) { el.textContent = ''; return; }
   const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  if (status.probesPaused && !cooldownUntil) {
+    el.classList.remove('cooldown');
+    el.textContent = 'Health checks are paused by the admin.';
+    return;
+  }
   const target = cooldownUntil || status.nextProbeAt;
   if (!target) { el.textContent = ''; el.classList.remove('cooldown'); return; }
   const ms = Date.parse(target) - Date.now();
