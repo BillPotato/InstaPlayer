@@ -5,4 +5,3 @@ pydantic-settings==2.7.1
 SQLAlchemy==2.0.36
 mutagen==1.47.0
 aiofiles==24.1.0
-httpx==0.28.1

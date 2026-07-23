@@ -471,7 +471,6 @@ function renderSystem() {
     ['Job retention', `${c.jobRetentionHours} h`],
     ['Log retention', c.logRetentionDays > 0 ? `${c.logRetentionDays} day(s)` : 'forever'],
     ['Qobuz token', c.qobuzTokenSet ? 'set' : '—'],
-    ['Spooty fallback', c.spootyEnabled ? 'on' : 'off'],
   ];
   let html = disk ? `<div class="diskbar"><div style="width:${pct}%"></div></div>` : '';
   html += '<div class="sysgrid">';

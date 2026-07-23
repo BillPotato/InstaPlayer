@@ -41,18 +41,6 @@ class Settings(BaseSettings):
     # the reaper deletes them. The backend stores nothing permanently.
     job_retention_hours: float = 6.0
 
-    # Base URL of an optional Spooty instance (https://github.com/Raiper34/spooty)
-    # used as a fallback when SpotiFLAC returns zero tracks — e.g. its proxy
-    # sources are all down. Spooty fetches lossy audio from YouTube, so it's a
-    # last resort, not a replacement. Unset (default) = fallback disabled.
-    # Override via SPOOTY_BASE_URL in .env, e.g. http://spooty:3000
-    spooty_base_url: str | None = None
-
-    # File extension Spooty is configured to produce (its FORMAT env var).
-    # Must be "flac" — ingest.py only scans for *.flac files. Override only if
-    # you change both this and Spooty's FORMAT together.
-    spooty_format: str = "flac"
-
     # Track used by POST /downloader/probe to verify SpotiFLAC can actually
     # download (its upstream resolver services break regularly). Any single
     # Spotify track URL that exists on the configured services works.
