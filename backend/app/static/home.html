@@ -66,6 +66,17 @@
   }
   .navbtn:hover:not(:disabled) { background: #333; }
   .navbtn:disabled { opacity: 0.3; cursor: default; }
+  .howto { margin-left: 20px; color: var(--dim); font-size: 13px; }
+  .howto li { margin-bottom: 8px; }
+  .howto li:last-child { margin-bottom: 0; }
+  .howto b { color: var(--text); }
+  .howto .good { color: var(--accent); font-weight: 600; }
+  .howto .bad { color: var(--red); font-weight: 600; }
+  .howto code {
+    background: var(--card-hi); border-radius: 4px; padding: 1px 6px;
+    font: 12px ui-monospace, Consolas, "Courier New", monospace; color: var(--text);
+    word-break: break-all;
+  }
   footer { color: var(--dim); font-size: 11px; text-align: center; margin-top: 24px; }
 </style>
 </head>
@@ -113,6 +124,22 @@
   <div class="card">
     <h2>Last download</h2>
     <div class="jobmeta" id="lastJob">—</div>
+  </div>
+
+  <div class="card">
+    <h2>How to use</h2>
+    <ol class="howto">
+      <li>Install the <b>InstaPlayer</b> app on your phone.</li>
+      <li>In the app, open <b>Settings</b> and set the server address to
+        <code id="serverUrl"></code> plus the API key (ask the admin for it), then Save.</li>
+      <li>Wait for the light above to be <span class="good">green</span> — that means
+        downloads are working. When it's <span class="bad">red</span>, importing is blocked;
+        check back later or watch this page.</li>
+      <li>In the app's <b>Import</b> tab, paste a Spotify playlist or album link,
+        pick a quality, and start the import.</li>
+      <li>Songs are transferred to your phone as they finish and play fully offline.
+        The server keeps no copy once your phone has them.</li>
+    </ol>
   </div>
 
   <footer id="uptime"></footer>
@@ -344,6 +371,8 @@ async function refresh() {
 }
 $('refreshBtn').onclick = refresh;
 setInterval(tickCountdown, 1000);
+// the exact address the phone should use = however this page was reached
+$('serverUrl').textContent = window.location.origin;
 refresh();
 </script>
 </body>
