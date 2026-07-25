@@ -9,6 +9,8 @@ venv/
 *.sqlite
 *.sqlite3
 backend/data/
+backend/logs/
+backups/
 
 # ---- Flutter / Dart (app/) ----
 app/.dart_tool/

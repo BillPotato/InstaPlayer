@@ -71,7 +71,6 @@ def system_report(settings: Settings, started_at: datetime) -> dict:
             "jobRetentionHours": settings.job_retention_hours,
             "probeIntervalMinutes": settings.probe_interval_minutes,
             "logRetentionDays": settings.log_retention_days,
-            "spootyEnabled": bool(settings.spooty_base_url),
             "qobuzTokenSet": bool(settings.qobuz_token),
         },
     }

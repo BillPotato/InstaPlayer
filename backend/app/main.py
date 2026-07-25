@@ -18,14 +18,14 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import downloader, logbuffer, sysinfo
+from . import adminstate, downloader, logbuffer, sysinfo
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
 from .ingest import load_manifest
 from .jobs import JobManager, get_job_manager
 from .models import Job
-from .schemas import JobCreate, JobOut, Manifest
+from .schemas import AdminSettingsUpdate, JobCreate, JobOut, Manifest
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +66,7 @@ async def lifespan(app: FastAPI):  # noqa: ANN001
     # Restore the last probe result from disk so a restart within the freshness
     # window doesn't trigger another (slow, rate-limit-hungry) probe.
     downloader.load_persisted_probe(settings)
+    adminstate.load(settings)  # public banner message + probe pause switch
     reaper = asyncio.create_task(manager.reaper())
     prober = asyncio.create_task(
         downloader.periodic_probe_loop(get_settings(), manager.has_active_jobs)
@@ -97,10 +98,19 @@ def health() -> dict[str, str]:
 # page prompts for the API key on first load / 401.
 _DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
 
+# The user page at "/" is fully public: it renders only the sanitized
+# GET /public/status payload (no key prompt, no admin actions).
+_HOME = Path(__file__).parent / "static" / "home.html"
+
 
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 def admin_dashboard() -> HTMLResponse:
     return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def home_page() -> HTMLResponse:
+    return HTMLResponse(_HOME.read_text(encoding="utf-8"))
 
 
 @app.get("/admin/system", dependencies=[Depends(require_auth)])
@@ -109,6 +119,29 @@ async def admin_system(settings: Settings = Depends(get_settings)) -> dict:
     effective config). Disk IO runs off the event loop."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, sysinfo.system_report, settings, _STARTED_AT)
+
+
+@app.get("/admin/settings", dependencies=[Depends(require_auth)])
+def get_admin_settings() -> dict:
+    """The admin-tunable runtime state (public banner message, probe pause)."""
+    return adminstate.get()
+
+
+@app.put("/admin/settings", dependencies=[Depends(require_auth)])
+def put_admin_settings(
+    payload: AdminSettingsUpdate,
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Partial update: omitted fields keep their value; an empty ``message``
+    clears the public banner."""
+    provided = payload.model_fields_set
+    message_given = "message" in provided
+    return adminstate.update(
+        settings,
+        message=payload.message if message_given else None,
+        clear_message=message_given and not (payload.message or "").strip(),
+        probes_paused=payload.probesPaused,
+    )
 
 
 @app.get("/logs/days", dependencies=[Depends(require_auth)])
@@ -128,6 +161,50 @@ def get_logs(date: str | None = None, after: int = 0, limit: int = 2000) -> dict
         return logbuffer.read_day(date, after=after, limit=limit)
     except ValueError:
         raise HTTPException(400, "date must be in YYYY-MM-DD format")
+
+
+@app.get("/public/status")
+async def public_status(
+    settings: Settings = Depends(get_settings),
+    manager: JobManager = Depends(get_job_manager),
+) -> dict:
+    """Unauthenticated, sanitized status for the user page at ``/``.
+
+    Only what a normal user cares about: is the server working, current
+    download progress, last download outcome, and the health timeline. No job
+    ids, Spotify URLs, error details, logs, or config — those stay behind the
+    Bearer-authed admin endpoints.
+    """
+    full = await downloader.status(settings, manager.has_active_jobs())
+    hist = downloader.probe_history()
+    admin = adminstate.get()
+    active, last, probe = full["activeJob"], full["lastJob"], full["lastProbe"]
+    uptime = (datetime.now(timezone.utc) - _STARTED_AT).total_seconds()
+    return {
+        "message": admin["message"],          # admin-set banner (None = hidden)
+        "probesPaused": admin["probesPaused"],
+        "importable": full["importable"],
+        "quality": full["quality"],
+        "services": full["services"],
+        "probing": full["probing"],
+        "nextProbeAt": full["nextProbeAt"],
+        "uptimeSeconds": round(uptime),
+        "activeJob": (
+            {"total": active["total"], "completed": active["completed"], "current": active["current"]}
+            if active else None
+        ),
+        "lastJob": (
+            {"status": last["status"], "updatedAt": last["updatedAt"]} if last else None
+        ),
+        "lastProbe": (
+            {"ok": probe.get("ok"), "at": probe.get("at"), "cooldownUntil": probe.get("cooldownUntil")}
+            if probe else None
+        ),
+        "history": [
+            {"at": x.get("at"), "ok": bool(x.get("ok")), "source": x.get("source")}
+            for x in hist["history"]
+        ],
+    }
 
 
 # --------------------------------------------------------------------------
@@ -170,6 +247,13 @@ async def downloader_probe(
 def downloader_history() -> dict:
     """Recent probe pass/fail outcomes for the dashboard's reliability timeline."""
     return downloader.probe_history()
+
+
+@app.delete("/downloader/history", dependencies=[Depends(require_auth)])
+def clear_downloader_history(settings: Settings = Depends(get_settings)) -> dict:
+    """Wipe the health timeline (e.g. after fixing an outage, for a clean record)."""
+    downloader.clear_history(settings)
+    return {"status": "cleared"}
 
 
 # --------------------------------------------------------------------------

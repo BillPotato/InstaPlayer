@@ -1,0 +1,9 @@
+# Caddy with the rate-limit plugin (not in the stock image), for the public
+# deployment overlay (docker-compose.public.yml). Caddy terminates TLS
+# (automatic Let's Encrypt when DOMAIN is a real hostname), rate-limits the
+# unauthenticated pages, and writes access logs separate from the app's logs.
+FROM caddy:2-builder AS builder
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+
+FROM caddy:2
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

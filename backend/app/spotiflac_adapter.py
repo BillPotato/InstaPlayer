@@ -66,11 +66,22 @@ def resolve_binary() -> str | None:
     return shutil.which(BINARY_NAME)
 
 
+# The binary can only change with a rebuild/redeploy, so its version is
+# cached per resolved path for the life of the process. Without this, every
+# GET /public/status (unauthenticated!) and /downloader/status would spawn a
+# `spotiflac-dl --version` subprocess.
+_version_cache: dict[str, str] = {}
+
+
 def binary_version() -> str | None:
-    """Version string reported by ``spotiflac-dl --version``, or ``None``."""
+    """Version string reported by ``spotiflac-dl --version``, or ``None``.
+    Cached after the first successful run (failures are retried)."""
     binary = resolve_binary()
     if binary is None:
         return None
+    cached = _version_cache.get(binary)
+    if cached is not None:
+        return cached
     try:
         out = subprocess.run(
             [binary, "--version"],
@@ -83,6 +94,8 @@ def binary_version() -> str | None:
     except Exception:
         return None
     version = (out.stdout or out.stderr or "").strip()
+    if version:
+        _version_cache[binary] = version
     return version or None
 
 

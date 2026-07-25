@@ -25,7 +25,6 @@ from .config import Settings, get_settings
 from .db import SessionLocal
 from .ingest import scan_flacs, update_manifest
 from .models import Job
-from .spooty_adapter import SpootyError, run_spooty
 from .spotiflac_adapter import SpotiFlacError, run_spotiflac
 
 log = logging.getLogger(__name__)
@@ -215,29 +214,6 @@ class JobManager:
                 )
             except SpotiFlacError as exc:
                 log.warning("SpotiFLAC failed for job %s: %s", job_id, exc)
-
-            if self.settings.spooty_base_url:
-                manifest = await loop.run_in_executor(
-                    None, update_manifest, job_dir, spotify_url
-                )
-                if manifest["trackCount"] == 0:
-                    log.info(
-                        "SpotiFLAC produced nothing for job %s — falling back to Spooty",
-                        job_id,
-                    )
-                    self._set_status(job_id, current="Falling back to alternate source…")
-                    try:
-                        await loop.run_in_executor(
-                            None,
-                            run_spooty,
-                            spotify_url,
-                            job_dir,
-                            self.settings.spooty_base_url,
-                            self.settings.spooty_format,
-                            on_progress,
-                        )
-                    except SpootyError as exc:
-                        log.warning("Spooty fallback failed for job %s: %s", job_id, exc)
 
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
