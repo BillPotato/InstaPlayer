@@ -56,10 +56,22 @@ class AdminSettingsUpdate(BaseModel):
     """Partial update for PUT /admin/settings — omitted fields are unchanged.
 
     ``message`` is the banner shown on the public page at "/"; send an empty
-    string to clear it. ``probesPaused`` toggles the periodic health probes.
+    string to clear it. ``messageLevel`` picks how loudly it is presented.
+    ``probesPaused`` toggles the periodic health probes.
     """
     message: str | None = None
+    messageLevel: str | None = None
     probesPaused: bool | None = None
+
+    @field_validator("messageLevel")
+    @classmethod
+    def validate_level(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in {"info", "warning", "critical"}:
+            raise ValueError("messageLevel must be info, warning or critical")
+        return v
 
 
 class ManifestTrack(BaseModel):
