@@ -139,6 +139,7 @@ def put_admin_settings(
     return adminstate.update(
         settings,
         message=payload.message if message_given else None,
+        message_level=payload.messageLevel,
         clear_message=message_given and not (payload.message or "").strip(),
         probes_paused=payload.probesPaused,
     )
@@ -184,6 +185,7 @@ async def public_status(
     uptime = (datetime.now(timezone.utc) - _STARTED_AT).total_seconds()
     return {
         "message": admin["message"],          # admin-set banner (None = hidden)
+        "messageLevel": admin["messageLevel"],
         "probesPaused": admin["probesPaused"],
         "importable": full["importable"],
         "quality": full["quality"],

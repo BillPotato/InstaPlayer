@@ -94,9 +94,10 @@ error, the last line of its output is surfaced as the failure reason.
 
 It also launches the engine with `$HOME` pointed at `SPOTIFLAC_ENGINE_HOME`
 (`/data/engine-home` in Docker): since v7.2.0 the engine's community endpoints
-need a session file at `$HOME/.spotiflac/community_session.json`, created once
-by the official desktop app (a browser captcha) and copied in by the admin —
-see "Community verification" in the README.
+need a session file at `$HOME/.spotiflac/community_session.json`. The engine
+mints that itself now (see `verification.py` below), but pointing its home at
+the mounted volume keeps the file across restarts and leaves the manual route
+open — see [Community verification](self-hosting.md#community-verification-captcha).
 
 ### `turnstile_solver/` — solving the captcha automatically
 

@@ -6,143 +6,284 @@
 <title>InstaPlayer - Status</title>
 <style>
   :root {
-    --bg: #121212; --card: #181818; --card-hi: #242424;
-    --text: #ffffff; --dim: #a7a7a7; --accent: #1DB954; --red: #e74c3c;
-    --border: #2a2a2a;
+    --bg: #0e0e10; --card: #18181b; --card-hi: #242428; --raise: #2c2c31;
+    --text: #ffffff; --dim: #a1a1aa; --faint: #71717a;
+    --accent: #1DB954; --accent-dim: #14833b;
+    --red: #ef4444; --amber: #f59e0b; --blue: #3b82f6;
+    --border: #27272a;
+    --radius: 14px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: var(--bg); color: var(--text);
-    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    min-height: 100vh; padding: 24px 16px 48px;
+    background:
+      radial-gradient(900px 420px at 50% -220px, rgba(29,185,84,0.10), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh; padding: 28px 16px 56px;
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 640px; margin: 0 auto; }
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-  h1 { font-size: 20px; font-weight: 800; }
-  .light { width: 14px; height: 14px; border-radius: 50%; background: var(--dim); flex: none; }
-  .light.green { background: var(--accent); }
-  .light.red { background: var(--red); }
-  .light.pulse { animation: pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.25; } }
-  .meta { color: var(--dim); font-size: 12px; flex: 1; min-width: 160px; }
-  .card { background: var(--card); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  .card h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 12px; }
-  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .statusword { font-size: 22px; font-weight: 800; }
-  .statusword.good { color: var(--accent); }
-  .statusword.bad { color: var(--red); }
-  .reason { font-size: 13px; color: var(--dim); margin-top: 4px; }
-  .reason.bad { color: var(--red); }
+  .wrap { max-width: 620px; margin: 0 auto; }
+
+  /* ---- header ---- */
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .logo { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; flex: 1; }
+  .logo span { color: var(--accent); }
+  .stamp { color: var(--faint); font-size: 12px; }
+  .iconbtn {
+    background: var(--card-hi); color: var(--text); border: 1px solid var(--border);
+    border-radius: 9px; width: 34px; height: 34px; display: grid; place-items: center;
+    font-size: 15px; cursor: pointer; flex: none; transition: background 0.15s, transform 0.35s;
+  }
+  .iconbtn:hover:not(:disabled) { background: var(--raise); }
+  .iconbtn:disabled { opacity: 0.45; cursor: default; }
+  .iconbtn.spin { transform: rotate(360deg); }
+
+  /* ---- announcement banner ---- */
   #banner {
-    display: none; background: var(--card-hi); border-left: 3px solid var(--accent);
-    border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
-    font-size: 13px; word-break: break-word;
+    display: none; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 18px;
+    border: 1px solid; gap: 12px; align-items: flex-start;
   }
-  #banner.show { display: block; }
-  #banner b { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
-  .countdown { font-size: 13px; margin-top: 6px; color: var(--dim); }
-  .countdown.cooldown { color: var(--red); font-weight: 600; }
-  .timeline { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--card-hi); margin-top: 6px; }
+  #banner.show { display: flex; }
+  #banner .bicon { font-size: 17px; line-height: 1.3; flex: none; }
+  #banner .btitle {
+    font-size: 11px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.09em; margin-bottom: 3px;
+  }
+  #banner .btext { font-size: 14px; color: var(--text); word-break: break-word; white-space: pre-wrap; }
+  #banner .btext strong { font-weight: 800; }
+  #banner.info { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.40); }
+  #banner.info .btitle, #banner.info .bicon { color: #93c5fd; }
+  #banner.warning { background: rgba(245,158,11,0.11); border-color: rgba(245,158,11,0.45); }
+  #banner.warning .btitle, #banner.warning .bicon { color: #fcd34d; }
+  #banner.critical {
+    background: rgba(239,68,68,0.13); border-color: rgba(239,68,68,0.55);
+    box-shadow: 0 0 0 1px rgba(239,68,68,0.14), 0 6px 22px -10px rgba(239,68,68,0.6);
+  }
+  #banner.critical .btitle, #banner.critical .bicon { color: #fca5a5; }
+  #banner.critical .bicon { animation: throb 1.8s ease-in-out infinite; }
+  @keyframes throb { 50% { opacity: 0.35; } }
+
+  /* ---- hero status ---- */
+  .hero {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 22px; margin-bottom: 16px; position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: var(--faint); transition: background 0.3s;
+  }
+  .hero.ok::before { background: linear-gradient(90deg, var(--accent), var(--accent-dim)); }
+  .hero.bad::before { background: linear-gradient(90deg, var(--red), #b91c1c); }
+  .herotop { display: flex; align-items: center; gap: 12px; }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--faint); flex: none;
+    position: relative;
+  }
+  .dot::after {
+    content: ''; position: absolute; inset: -5px; border-radius: 50%;
+    background: currentColor; opacity: 0.18;
+  }
+  .hero.ok .dot { background: var(--accent); color: var(--accent); }
+  .hero.bad .dot { background: var(--red); color: var(--red); }
+  .dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  .statusword { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; flex: 1; }
+  .hero.ok .statusword { color: var(--accent); }
+  .hero.bad .statusword { color: var(--red); }
+  .reason { font-size: 14px; color: var(--dim); margin-top: 8px; }
+  .countdown {
+    font-size: 13px; color: var(--faint); margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border); display: flex; align-items: center; gap: 6px;
+  }
+  .countdown.cooldown { color: var(--amber); }
+
+  /* ---- cards ---- */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--faint); margin-bottom: 12px; display: flex; justify-content: space-between;
+    align-items: center; gap: 8px;
+  }
+  .card h2 .hint { text-transform: none; letter-spacing: 0; font-weight: 500; }
+
+  /* ---- timeline ---- */
+  .timeline { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--card-hi); }
   .tlseg { height: 100%; }
-  .tlseg.ok { background: #22C55E; }
-  .tlseg.bad { background: var(--red); }
-  .tlseg.gap { background: #2a2a2a; }
-  .winbtn { background: var(--card-hi); color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
-  .winbtn.active { background: var(--accent); color: #000; }
+  .tlseg.ok { background: linear-gradient(180deg, #22c55e, #16a34a); }
+  .tlseg.bad { background: linear-gradient(180deg, #ef4444, #dc2626); }
+  .tlseg.gap { background: repeating-linear-gradient(45deg, #26262b, #26262b 4px, #2e2e34 4px, #2e2e34 8px); }
+  .winbtns { display: inline-flex; background: var(--card-hi); border-radius: 8px; padding: 2px; }
+  .winbtn {
+    background: none; color: var(--dim); border: 0; border-radius: 6px;
+    padding: 4px 11px; font-size: 11px; font-weight: 700; cursor: pointer;
+  }
+  .winbtn.active { background: var(--raise); color: var(--text); }
   .tlwrap { position: relative; }
   .tlgrid { position: absolute; inset: 0; pointer-events: none; }
-  .tlgrid > span { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.14); }
-  .histaxis { position: relative; height: 16px; margin-top: 4px; }
-  .histaxis .tickmark { position: absolute; top: 0; width: 1px; height: 4px; background: var(--border); }
-  .histaxis .ticklabel { position: absolute; top: 5px; font-size: 10px; color: var(--dim); white-space: nowrap; }
-  .bar { height: 6px; border-radius: 3px; background: var(--card-hi); overflow: hidden; margin: 10px 0 6px; }
-  .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; }
-  .jobmeta { font-size: 13px; color: var(--dim); word-break: break-word; }
-  .jobmeta .good { color: var(--accent); }
-  .jobmeta .bad { color: var(--red); }
-  .navbtn {
-    background: var(--card-hi); color: var(--text); border: 0; border-radius: 6px;
-    padding: 6px 13px; font-size: 13px; line-height: 1.4; cursor: pointer;
+  .tlgrid > span { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.13); }
+  .histaxis { position: relative; height: 16px; margin-top: 5px; }
+  .histaxis .ticklabel { position: absolute; top: 0; font-size: 10px; color: var(--faint); white-space: nowrap; }
+  .legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--faint); flex-wrap: wrap; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+  .uptimepct { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .uptimepct small { font-size: 12px; font-weight: 500; color: var(--faint); margin-left: 5px; letter-spacing: 0; }
+
+  /* ---- active job ---- */
+  .bar { height: 8px; border-radius: 4px; background: var(--card-hi); overflow: hidden; margin: 12px 0 10px; }
+  .bar > div {
+    height: 100%; border-radius: 4px; width: 0%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    transition: width 0.5s ease;
   }
-  .navbtn:hover:not(:disabled) { background: #333; }
-  .navbtn:disabled { opacity: 0.3; cursor: default; }
-  .howto { margin-left: 20px; color: var(--dim); font-size: 13px; }
-  .howto li { margin-bottom: 8px; }
+  .jobrow { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .jobpct { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .jobcount { font-size: 13px; color: var(--dim); }
+  .nowplaying {
+    margin-top: 10px; padding: 10px 12px; background: var(--card-hi); border-radius: 9px;
+    font-size: 13px; color: var(--dim); display: flex; gap: 8px; align-items: center;
+  }
+  .nowplaying b { color: var(--text); font-weight: 600; }
+  .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; flex: none; }
+  .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(1) { height: 60%; animation-delay: -0.4s; }
+  .eq i:nth-child(2) { height: 100%; animation-delay: -0.2s; }
+  .eq i:nth-child(3) { height: 45%; }
+  @keyframes eq { 50% { transform: scaleY(0.35); } }
+
+  /* ---- misc ---- */
+  .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; padding: 7px 0; }
+  .kv + .kv { border-top: 1px solid var(--border); }
+  .kv .k { color: var(--dim); }
+  .kv .v { color: var(--text); text-align: right; word-break: break-word; }
+  .kv .v.good { color: var(--accent); }
+  .kv .v.bad { color: var(--red); }
+  .howto { list-style: none; counter-reset: step; }
+  .howto li {
+    counter-increment: step; position: relative; padding-left: 34px; margin-bottom: 13px;
+    font-size: 14px; color: var(--dim);
+  }
   .howto li:last-child { margin-bottom: 0; }
-  .howto b { color: var(--text); }
-  .howto .good { color: var(--accent); font-weight: 600; }
-  .howto .bad { color: var(--red); font-weight: 600; }
-  .howto code {
-    background: var(--card-hi); border-radius: 4px; padding: 1px 6px;
-    font: 12px ui-monospace, Consolas, "Courier New", monospace; color: var(--text);
-    word-break: break-all;
+  .howto li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 23px; height: 23px; border-radius: 50%; background: var(--card-hi);
+    color: var(--text); font-size: 11px; font-weight: 800; display: grid; place-items: center;
   }
-  footer { color: var(--dim); font-size: 11px; text-align: center; margin-top: 24px; }
+  .howto b { color: var(--text); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 5px; font-size: 12px; font-weight: 700; }
+  .pill.green { background: rgba(29,185,84,0.16); color: var(--accent); }
+  .pill.red { background: rgba(239,68,68,0.16); color: var(--red); }
+  .copyrow { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .copyrow code {
+    background: var(--card-hi); border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 10px; font: 12px ui-monospace, Consolas, "Courier New", monospace;
+    color: var(--text); word-break: break-all; flex: 1;
+  }
+  .copybtn {
+    background: var(--card-hi); border: 1px solid var(--border); color: var(--dim);
+    border-radius: 7px; padding: 6px 10px; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
+  }
+  .copybtn:hover { background: var(--raise); color: var(--text); }
+  footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 22px; }
+  .skeleton { color: var(--faint); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  @media (max-width: 420px) {
+    .statusword { font-size: 22px; }
+    body { padding: 20px 12px 40px; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="light" id="light"></div>
-    <h1>InstaPlayer</h1>
-    <div class="meta" id="meta">connecting…</div>
-    <span id="updatedAt" style="color:var(--dim);font-size:12px"></span>
-    <button class="navbtn" id="refreshBtn" title="Refresh">&#8635; Refresh</button>
+    <div class="logo">Insta<span>Player</span></div>
+    <span class="stamp" id="updatedAt"></span>
+    <button class="iconbtn" id="refreshBtn" title="Refresh" aria-label="Refresh">&#8635;</button>
   </header>
 
-  <div id="banner"><b>Message from the admin</b><span id="bannerText"></span></div>
+  <div id="banner" role="status" aria-live="polite">
+    <span class="bicon" id="bannerIcon"></span>
+    <div style="flex:1">
+      <div class="btitle" id="bannerTitle"></div>
+      <div class="btext" id="bannerText"></div>
+    </div>
+  </div>
+
+  <div class="hero" id="hero">
+    <div class="herotop">
+      <span class="dot" id="dot"></span>
+      <span class="statusword" id="statusWord">Checking…</span>
+    </div>
+    <div class="reason" id="reason"></div>
+    <div class="countdown" id="countdown" style="display:none"></div>
+  </div>
+
+  <div class="card" id="jobCard" style="display:none">
+    <h2>Downloading now <span class="hint" id="jobHint"></span></h2>
+    <div class="jobrow">
+      <span class="jobpct" id="jobPct">0%</span>
+      <span class="jobcount" id="jobCounts"></span>
+    </div>
+    <div class="bar"><div id="jobBar"></div></div>
+    <div class="nowplaying" id="nowPlaying" style="display:none">
+      <span class="eq"><i></i><i></i><i></i></span>
+      <span id="jobCurrent"></span>
+    </div>
+  </div>
 
   <div class="card">
-    <h2>Server</h2>
-    <div class="statusword" id="statusWord">…</div>
-    <div class="reason" id="reason"></div>
-    <div class="countdown" id="countdown"></div>
-    <div style="margin-top:14px">
-      <div class="row" style="justify-content:space-between">
-        <span style="font-size:13px;color:var(--dim)" id="histSummary"></span>
-        <span>
-          <button class="winbtn active" data-win="24h">24h</button>
-          <button class="winbtn" data-win="3d">3d</button>
-          <button class="winbtn" data-win="7d">7d</button>
-        </span>
-      </div>
+    <h2>Reliability <span class="winbtns">
+      <button class="winbtn active" data-win="24h">24h</button>
+      <button class="winbtn" data-win="3d">3d</button>
+      <button class="winbtn" data-win="7d">7d</button>
+    </span></h2>
+    <div class="uptimepct" id="uptimePct">—<small id="uptimeNote"></small></div>
+    <div style="margin-top:10px">
       <div class="tlwrap">
         <div class="timeline" id="timeline"></div>
         <div class="tlgrid" id="tlgrid"></div>
       </div>
       <div class="histaxis" id="histScale"></div>
     </div>
-  </div>
-
-  <div class="card" id="jobCard" style="display:none">
-    <h2>Current download</h2>
-    <div class="bar"><div id="jobBar"></div></div>
-    <div class="jobmeta" id="jobCounts"></div>
-    <div class="jobmeta" id="jobCurrent" style="margin-top:4px"></div>
+    <div class="legend">
+      <span><i style="background:#22c55e"></i>Downloads working</span>
+      <span><i style="background:#ef4444"></i>Not working</span>
+      <span><i style="background:#2e2e34"></i>No data</span>
+    </div>
   </div>
 
   <div class="card">
-    <h2>Last download</h2>
-    <div class="jobmeta" id="lastJob">-</div>
+    <h2>Details</h2>
+    <div class="kv"><span class="k">Last download</span><span class="v" id="lastJob">—</span></div>
+    <div class="kv"><span class="k">Quality</span><span class="v" id="kvQuality">—</span></div>
+    <div class="kv"><span class="k">Sources</span><span class="v" id="kvSources">—</span></div>
+    <div class="kv"><span class="k">Server uptime</span><span class="v" id="kvUptime">—</span></div>
   </div>
 
   <div class="card">
     <h2>How to use</h2>
     <ol class="howto">
       <li>Install the <b>InstaPlayer</b> app on your phone.</li>
-      <li>In the app, open <b>Settings</b> and set the server address to
-        <code id="serverUrl"></code> plus the API key (ask the admin for it), then Save.</li>
-      <li>Wait for the light above to be <span class="good">green</span> - that means
-        downloads are working. When it's <span class="bad">red</span>, importing is blocked;
-        check back later or watch this page.</li>
-      <li>In the app's <b>Import</b> tab, paste a Spotify playlist or album link,
-        pick a quality, and start the import.</li>
-      <li>Songs are transferred to your phone as they finish and play fully offline.
-        The server keeps no copy once your phone has them.</li>
+      <li>In the app's <b>Settings</b>, set the server address and the API key
+        (ask the admin for the key), then Save.
+        <div class="copyrow">
+          <code id="serverUrl"></code>
+          <button class="copybtn" id="copyUrl">Copy</button>
+        </div>
+      </li>
+      <li>Wait until the status above reads <span class="pill green">Working</span>.
+        While it's <span class="pill red">Not working</span>, imports are blocked.</li>
+      <li>Open the <b>Import</b> tab, paste a Spotify playlist or album link, pick a
+        quality, and start.</li>
+      <li>Songs land on your phone as they finish and play <b>fully offline</b> — the
+        server keeps no copy once your phone has them.</li>
     </ol>
   </div>
 
-  <footer id="uptime"></footer>
+  <footer id="footer"></footer>
 </div>
 
 <script>
@@ -153,6 +294,11 @@ let statusFailed = false;  // last fetch errored (server unreachable)
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+// Admin messages support **bold**. Escaping runs first, so the only markup
+// that can reach the DOM is the <strong> we add ourselves.
+function richText(s) {
+  return escapeHtml(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 function fmtDuration(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -167,21 +313,35 @@ function fmtUptime(s) {
   return `${m}m`;
 }
 
+// ---- announcement banner -----------------------------------------------
+const BANNER = {
+  info:     { icon: 'ℹ️', title: 'Announcement' },
+  warning:  { icon: '⚠️', title: 'Heads up' },
+  critical: { icon: '🚨', title: 'Important' },
+};
+function renderBanner() {
+  const el = $('banner');
+  const msg = status && status.message;
+  el.classList.remove('show', 'info', 'warning', 'critical');
+  if (!msg) return;
+  const level = BANNER[status.messageLevel] ? status.messageLevel : 'info';
+  const spec = BANNER[level];
+  $('bannerIcon').textContent = spec.icon;
+  $('bannerTitle').textContent = spec.title;
+  $('bannerText').innerHTML = richText(msg);
+  el.classList.add('show', level);
+}
+
 // ---- rendering ---------------------------------------------------------
 function render() {
-  const light = $('light');
-  const word = $('statusWord');
-  light.classList.remove('green', 'red', 'pulse');
-  word.classList.remove('good', 'bad');
-  const reason = $('reason');
-  reason.classList.remove('bad');
+  const hero = $('hero'), dot = $('dot'), word = $('statusWord'), reason = $('reason');
+  hero.classList.remove('ok', 'bad');
+  dot.classList.remove('pulse');
   if (statusFailed || !status) {
-    light.classList.add('red');
-    word.classList.add('bad');
-    word.textContent = statusFailed ? 'Unreachable' : '…';
+    hero.classList.add(statusFailed ? 'bad' : '');
+    word.textContent = statusFailed ? 'Unreachable' : 'Checking…';
     reason.textContent = statusFailed
-      ? 'The server did not respond - it may be off or your connection is down.' : '';
-    $('meta').textContent = statusFailed ? 'server unreachable' : 'connecting…';
+      ? 'The server did not respond - it may be off, or your connection is down.' : '';
     $('banner').classList.remove('show');
     return;
   }
@@ -190,9 +350,8 @@ function render() {
   const lastFailed = status.lastJob && status.lastJob.status === 'failed';
   // Red = anything that blocks downloads right now (same rule as the app).
   const bad = !status.importable || !!cooldownUntil || probeOk === false || lastFailed;
-  light.classList.add(bad ? 'red' : 'green');
-  if (status.probing) light.classList.add('pulse');
-  word.classList.add(bad ? 'bad' : 'good');
+  hero.classList.add(bad ? 'bad' : 'ok');
+  if (status.probing) dot.classList.add('pulse');
   word.textContent = bad ? 'Not working' : 'Working';
 
   // one specific, plain-words reason for the current state
@@ -201,81 +360,82 @@ function render() {
   } else if (cooldownUntil) {
     reason.textContent = 'The music sources are rate-limiting us - downloads resume when the timer below runs out.';
   } else if (probeOk === false) {
-    reason.textContent = 'The last health check could not download a song, downloads are unavailable right now.';
+    reason.textContent = 'The last health check could not download a song, so downloads are unavailable right now.';
   } else if (lastFailed) {
-    reason.textContent = 'The most recent download failed, the next one may fail too.';
+    reason.textContent = 'The most recent download failed - the next one may fail too.';
   } else if (status.probing) {
     reason.textContent = 'Running a health check right now…';
   } else {
-    reason.textContent = 'Everything looks good, downloads should work.';
+    reason.textContent = 'Everything looks good - downloads should work.';
   }
-  if (bad) reason.classList.add('bad');
 
-  // admin-set banner
-  $('banner').classList.toggle('show', !!status.message);
-  $('bannerText').textContent = status.message || '';
-
-  $('meta').textContent =
-    `quality: ${status.quality || '?'} · sources: ${(status.services || []).join(', ')}`;
+  renderBanner();
 
   // current download card
   const job = status.activeJob;
   $('jobCard').style.display = job ? '' : 'none';
   if (job) {
     const total = job.total || 0, done = job.completed || 0;
-    $('jobBar').style.width = total > 0 ? `${Math.min(100, Math.round(done / total * 100))}%` : '0%';
+    const pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0;
+    $('jobBar').style.width = `${pct}%`;
+    $('jobPct').textContent = total > 0 ? `${pct}%` : '…';
     $('jobCounts').textContent = total > 0
-      ? `${done} of ${total} songs - ${Math.max(0, total - done)} to go`
-      : `${done} songs downloaded (total unknown yet)`;
-    $('jobCurrent').textContent = job.current ? `Now fetching: ${job.current}` : '';
+      ? `${done} of ${total} songs · ${Math.max(0, total - done)} to go`
+      : `${done} songs so far`;
+    $('jobHint').textContent = total > 0 ? '' : 'counting tracks…';
+    $('nowPlaying').style.display = job.current ? '' : 'none';
+    $('jobCurrent').innerHTML = job.current ? `<b>${escapeHtml(job.current)}</b>` : '';
   }
 
+  // details
   const lj = status.lastJob;
   const ljWord = { completed: 'Finished', failed: 'Failed', cancelled: 'Cancelled',
                    running: 'Running', queued: 'Queued' };
-  $('lastJob').innerHTML = lj
-    ? `<span class="${lj.status === 'completed' ? 'good' : lj.status === 'failed' ? 'bad' : ''}">` +
-      `${ljWord[lj.status] || escapeHtml(lj.status)}</span>` +
-      (lj.updatedAt ? ` - ${new Date(lj.updatedAt).toLocaleString()}` : '')
-    : 'No downloads yet.';
-
-  $('uptime').textContent = status.uptimeSeconds != null
-    ? `Server up for ${fmtUptime(status.uptimeSeconds)}` : '';
+  const lastEl = $('lastJob');
+  lastEl.className = 'v ' + (lj && lj.status === 'completed' ? 'good' : lj && lj.status === 'failed' ? 'bad' : '');
+  lastEl.textContent = lj
+    ? (ljWord[lj.status] || lj.status) + (lj.updatedAt ? ` · ${new Date(lj.updatedAt).toLocaleString()}` : '')
+    : 'No downloads yet';
+  $('kvQuality').textContent = status.quality === 'HI_RES' ? 'Hi-Res (24-bit)'
+    : status.quality === 'LOSSLESS' ? 'Lossless (16-bit)' : (status.quality || '—');
+  $('kvSources').textContent = (status.services || []).join(', ') || '—';
+  $('kvUptime').textContent = status.uptimeSeconds != null ? fmtUptime(status.uptimeSeconds) : '—';
+  $('footer').textContent = 'This page shows server status only. Your music lives on your phone.';
 }
 
 // countdown line ticks locally every second between refreshes
 function tickCountdown() {
   const el = $('countdown');
-  if (!status) { el.textContent = ''; return; }
+  const hide = () => { el.style.display = 'none'; };
+  if (!status) { hide(); return; }
   const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
+  el.classList.remove('cooldown');
   if (status.probesPaused && !cooldownUntil) {
-    el.classList.remove('cooldown');
-    el.textContent = 'Health checks are paused by the admin.';
+    el.style.display = '';
+    el.textContent = '⏸ Health checks are paused by the admin.';
     return;
   }
   const target = cooldownUntil || status.nextProbeAt;
-  if (!target) { el.textContent = ''; el.classList.remove('cooldown'); return; }
+  if (!target) { hide(); return; }
   const ms = Date.parse(target) - Date.now();
+  el.style.display = '';
   if (cooldownUntil) {
     el.classList.add('cooldown');
-    el.textContent = ms > 0 ? `Busy, back in about ${fmtDuration(ms)}` : 'Should be back any moment';
+    el.textContent = ms > 0 ? `⏳ Busy - back in about ${fmtDuration(ms)}` : '⏳ Should be back any moment';
   } else {
-    el.classList.remove('cooldown');
-    el.textContent = ms > 0 ? `Next health check in ${fmtDuration(ms)}` : 'Health check due now';
+    el.textContent = ms > 0 ? `✓ Next health check in ${fmtDuration(ms)}` : '✓ Health check due now';
   }
 }
 
-// ---- health timeline (same logic as the admin dashboard) ---------------
+// ---- health timeline ----------------------------------------------------
 const HIST_WINDOWS = { '24h': 864e5, '3d': 3 * 864e5, '7d': 7 * 864e5 };
 const HIST_GAP_MS = 2.5 * 3600 * 1000;
-const TICK_STEP = { '24h': 4 * 3600e3, '3d': 12 * 3600e3, '7d': 24 * 3600e3 };
+const TICK_STEP = { '24h': 6 * 3600e3, '3d': 24 * 3600e3, '7d': 24 * 3600e3 };
 let histWindow = '24h';
 
 function fmtTick(d, win) {
-  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (win === '24h') return t;
-  if (win === '7d') return d.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
-  return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+  if (win === '24h') return d.toLocaleTimeString([], { hour: 'numeric' });
+  return d.toLocaleDateString([], { weekday: 'short' });
 }
 function tickStart(startMs, stepMs) {
   const d = new Date(startMs);
@@ -290,7 +450,7 @@ function renderHistory() {
   evs.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   if (!evs.length) {
     tl.innerHTML = '';
-    $('histSummary').textContent = 'No history yet.';
+    $('uptimePct').innerHTML = '—<small>no history yet</small>';
     $('histScale').innerHTML = '';
     $('tlgrid').innerHTML = '';
     return;
@@ -325,9 +485,11 @@ function renderHistory() {
     return `<span class="tlseg ${cls}" style="width:${w.toFixed(3)}%" title="${escapeHtml(title)}"></span>`;
   }).join('');
   const known = okMs + badMs;
-  $('histSummary').textContent = known > 0
-    ? `Working ${Math.round(okMs / known * 100)}% of the last ${histWindow}`
-    : `No checks in the last ${histWindow}`;
+  $('uptimePct').innerHTML = known > 0
+    ? `${Math.round(okMs / known * 100)}%<small>working over the last ${histWindow}</small>`
+    : `—<small>no checks in the last ${histWindow}</small>`;
+  // Time axis: labels aligned to local boundaries, with faint gridlines over
+  // the bar so each timestamp lines up with the segments underneath it.
   const step = TICK_STEP[histWindow];
   let grid = '', axis = '';
   for (let t = tickStart(start, step); t <= now; t += step) {
@@ -336,8 +498,7 @@ function renderHistory() {
     const tf = pos < 6 ? 'translateX(0)' : pos > 94 ? 'translateX(-100%)' : 'translateX(-50%)';
     const p = pos.toFixed(3);
     grid += `<span style="left:${p}%"></span>`;
-    axis += `<span class="tickmark" style="left:${p}%"></span>` +
-      `<span class="ticklabel" style="left:${p}%;transform:${tf}">${escapeHtml(fmtTick(new Date(t), histWindow))}</span>`;
+    axis += `<span class="ticklabel" style="left:${p}%;transform:${tf}">${escapeHtml(fmtTick(new Date(t), histWindow))}</span>`;
   }
   $('tlgrid').innerHTML = grid;
   $('histScale').innerHTML = axis;
@@ -350,10 +511,11 @@ document.querySelectorAll('.winbtn').forEach((b) => {
   };
 });
 
-// ---- refresh (manual only — no polling, matching the admin page) --------
+// ---- refresh (manual only - no polling, matching the admin page) --------
 async function refresh() {
   const btn = $('refreshBtn');
   btn.disabled = true;
+  btn.classList.add('spin');
   try {
     const res = await fetch('/public/status');
     if (!res.ok) throw new Error(String(res.status));
@@ -363,6 +525,7 @@ async function refresh() {
     statusFailed = true;
   } finally {
     btn.disabled = false;
+    setTimeout(() => btn.classList.remove('spin'), 400);
   }
   render();
   renderHistory();
@@ -370,6 +533,13 @@ async function refresh() {
   $('updatedAt').textContent = 'updated ' + new Date().toLocaleTimeString();
 }
 $('refreshBtn').onclick = refresh;
+$('copyUrl').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(window.location.origin);
+    $('copyUrl').textContent = 'Copied';
+    setTimeout(() => { $('copyUrl').textContent = 'Copy'; }, 1500);
+  } catch (e) { /* clipboard blocked (non-https / permissions) - the text is selectable anyway */ }
+};
 setInterval(tickCountdown, 1000);
 // the exact address the phone should use = however this page was reached
 $('serverUrl').textContent = window.location.origin;
