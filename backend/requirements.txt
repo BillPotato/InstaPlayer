@@ -5,3 +5,8 @@ pydantic-settings==2.7.1
 SQLAlchemy==2.0.36
 mutagen==1.47.0
 aiofiles==24.1.0
+
+# Drives the browser for turnstile_solver/ (the community-verification
+# captcha). Needs an actual browser alongside it: in Docker that's
+# --build-arg WITH_SOLVER=1, which adds chromium + xvfb.
+nodriver==0.50.3

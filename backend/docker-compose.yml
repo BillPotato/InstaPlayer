@@ -1,6 +1,13 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      args:
+        # Bundles Google Chrome + xvfb so the container can solve the community
+        # verification captcha itself (see turnstile_solver/README.md). Set
+        # WITH_SOLVER=0 in .env for the slim image, at the cost of having to
+        # supply a session file by hand.
+        WITH_SOLVER: "${WITH_SOLVER:-1}"
     ports:
       - "8000:8000"
     env_file:
