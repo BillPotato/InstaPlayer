@@ -184,6 +184,31 @@ _JS_FINGERPRINT = """
 """
 
 
+def _egress() -> dict:
+    """Where this machine's outbound traffic appears to come from.
+
+    Makes one call to a public IP-geolocation service, so it only runs in this
+    explicitly-invoked diagnostic — never on a server path. The address matters
+    because a challenge scores the browser's clock against the address the
+    request arrived from: on a hosting provider that is the provider's region,
+    not the operator's, which is exactly the case people get wrong.
+    """
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen("https://ipinfo.io/json", timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return {"error": f"could not determine the egress address: {exc}"}
+    return {
+        "ip": data.get("ip"),
+        "city": data.get("city"),
+        "country": data.get("country"),
+        "org": data.get("org"),
+        "timezone": data.get("timezone"),
+    }
+
+
 def _fingerprint(url: str, config, server) -> int:
     """Report what an anti-bot script would read from this browser.
 
@@ -200,8 +225,24 @@ def _fingerprint(url: str, config, server) -> int:
             await session.open_page()
             await asyncio.sleep(2)
             raw = await session._eval(_JS_FINGERPRINT)
+            browser = json.loads(raw) if raw else {}
+
+            egress = _egress()
             print(json.dumps({"headless": session.headless}))
+            print(json.dumps({"egress": egress}, indent=2))
             print(raw or '{"error": "no fingerprint returned"}')
+
+            # The comparison this whole mode exists for.
+            wanted, got = egress.get("timezone"), browser.get("timezone")
+            if wanted and got:
+                if wanted == got:
+                    logger.info("timezone matches the egress address (%s)", got)
+                else:
+                    logger.warning(
+                        "TIMEZONE MISMATCH: the browser says %s but this machine's "
+                        "traffic leaves from %s. Set TZ=%s",
+                        got, wanted, wanted,
+                    )
             return 0
 
     try:
