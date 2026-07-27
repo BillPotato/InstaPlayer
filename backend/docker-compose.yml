@@ -1,6 +1,12 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      args:
+        # 1 bundles chromium + xvfb so the container can solve the community
+        # verification captcha itself (see turnstile_solver/README.md).
+        # Costs several hundred MB; the server itself never needs it.
+        WITH_SOLVER: "${WITH_SOLVER:-0}"
     ports:
       - "8000:8000"
     env_file:
