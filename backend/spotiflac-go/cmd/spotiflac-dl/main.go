@@ -10,11 +10,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -89,6 +92,11 @@ func main() {
 
 	backend.AppVersion = upstreamAppVersion  // used to sign community requests
 
+	// Lets the engine get past the community-verification captcha on its own;
+	// without a handler registered it fails with "browser integration is not
+	// ready". See openVerificationURL.
+	backend.SetCommunityVerificationHandlers(openVerificationURL, func() {})
+
 	if *maxRetries >= 0 {
 		backend.SetCommunityRateLimitMaxRetries(*maxRetries)
 	}
@@ -143,6 +151,88 @@ func main() {
 	if saved == 0 {
 		fatal("all %d track(s) failed to download", total)
 	}
+}
+
+// verifyCommandTimeout caps the solver subprocess. The engine gives the whole
+// verification 5 minutes (communityVerifyTimeout); stop a little short of that
+// so a wedged solver is reported as such rather than as a bare timeout.
+const verifyCommandTimeout = 4 * time.Minute
+
+// verifyCommand reads the solver invocation from SPOTIFLAC_VERIFY_CMD.
+//
+// Either a JSON argv array — what the FastAPI backend sets, so an interpreter
+// path with spaces survives — or a plain command line split on whitespace, for
+// an admin setting it by hand. Empty or "off" disables auto-verification.
+func verifyCommand() []string {
+	raw := strings.TrimSpace(os.Getenv("SPOTIFLAC_VERIFY_CMD"))
+	if raw == "" || strings.EqualFold(raw, "off") {
+		return nil
+	}
+	if strings.HasPrefix(raw, "[") {
+		var argv []string
+		if err := json.Unmarshal([]byte(raw), &argv); err != nil || len(argv) == 0 {
+			fmt.Fprintf(os.Stderr, "  verification: ignoring malformed SPOTIFLAC_VERIFY_CMD\n")
+			return nil
+		}
+		return argv
+	}
+	return strings.Fields(raw)
+}
+
+// openVerificationURL stands in for the desktop app's "open a browser window"
+// handler (backend.SetCommunityVerificationHandlers).
+//
+// The community endpoints need a signed session, and minting one means passing
+// a Cloudflare Turnstile challenge. The engine does everything around that
+// itself: it bootstraps a challenge URL, starts a loopback callback server, and
+// passes us the URL with the callback already attached as ?cb=. On the desktop
+// a human clicks the checkbox and the page redirects to that callback; here we
+// hand the URL to a solver command that drives a real browser instead. Either
+// way the engine receives the grant on its own callback, exchanges it, and
+// writes ~/.spotiflac/community_session.json — none of that is our business.
+//
+// So this only has to launch the solver. It runs in the background: the caller
+// then blocks on its own 5-minute wait for the grant, which is the real
+// deadline. With no command configured we print the URL, leaving the manual
+// route (solve it elsewhere, copy the session file in) intact.
+func openVerificationURL(challengeURL string) {
+	fmt.Fprintf(os.Stderr, "  community verification required: %s\n", challengeURL)
+
+	argv := verifyCommand()
+	if len(argv) == 0 {
+		fmt.Fprintln(os.Stderr, "  no solver configured (SPOTIFLAC_VERIFY_CMD unset) — "+
+			"open the URL above in a browser to verify manually")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), verifyCommandTimeout)
+		defer cancel()
+
+		args := append(append([]string{}, argv[1:]...), challengeURL)
+		cmd := exec.CommandContext(ctx, argv[0], args...)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  verification solver failed to start: %v\n", err)
+			return
+		}
+		cmd.Stderr = cmd.Stdout // same *os.File, so exec writes both to one fd
+
+		fmt.Fprintf(os.Stderr, "  running verification solver: %s\n", argv[0])
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "  verification solver failed to start: %v\n", err)
+			return
+		}
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			fmt.Fprintf(os.Stderr, "  [solver] %s\n", scanner.Text())
+		}
+		if err := cmd.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "  verification solver failed: %v\n", err)
+			return
+		}
+		fmt.Fprintln(os.Stderr, "  verification solver finished")
+	}()
 }
 
 // expandTracks turns a Spotify URL into its track list. GetFilteredSpotifyData

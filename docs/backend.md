@@ -92,6 +92,65 @@ a `Track [1/12] Title — Artist` line gives both the total (`12`) and the
 current track label shown on the progress bar. If the engine exits with an
 error, the last line of its output is surfaced as the failure reason.
 
+It also launches the engine with `$HOME` pointed at `SPOTIFLAC_ENGINE_HOME`
+(`/data/engine-home` in Docker): since v7.2.0 the engine's community endpoints
+need a session file at `$HOME/.spotiflac/community_session.json`. The engine
+mints that itself now (see `verification.py` below), but pointing its home at
+the mounted volume keeps the file across restarts and leaves the manual route
+open — see [Community verification](self-hosting.md#community-verification-captcha).
+
+### `turnstile_solver/` — solving the captcha automatically
+
+A standalone library (a sibling of `app/`, not part of it) that gets past a
+Cloudflare Turnstile challenge by driving a real Chrome window: it opens the
+page, waits for the checkbox, clicks it like a person would, and returns the
+token — plus whatever the page hands back afterwards.
+
+It exists because of the session file described just above: producing one
+normally means a human clicking a captcha in the desktop app. This library is
+the automated version of that click.
+
+It's a general-purpose library — usable on its own as
+`python -m turnstile_solver <url>` — but in this app it exists for one job:
+letting the engine mint its own community session. `verification.py` below
+wires the two together.
+
+It needs a real browser, which the Docker image leaves out by default because
+it's big. Put `WITH_SOLVER=1` in `backend/.env` and the container gets Chrome
+plus a virtual screen (Xvfb) on every build — a `--build-arg` on the command
+line only counts for that one build, and the next rebuild quietly drops the
+browser. Full usage guide, including the headless options:
+[`backend/turnstile_solver/README.md`](../backend/turnstile_solver/README.md).
+
+### `verification.py` — getting past the captcha without a person
+
+The engine can't reach any music provider without a signed session, and
+getting one means passing a Cloudflare captcha. Someone used to have to solve
+that in the desktop app on another machine and copy the resulting file over.
+
+Now the engine does it itself, and this file is the handshake. The trick is
+that the engine already knows how to run the whole verification — it just
+needs something to "open the browser" with. So we hand it a command
+(`SPOTIFLAC_VERIFY_CMD`) that runs the solver on the challenge URL. The engine
+gets the answer back on its own loopback callback and writes its own session
+file; we never see the grant or the secret.
+
+There's one wrinkle worth knowing about. The engine hands over a challenge URL
+that says "when you're done, call me back at this local address", and then
+waits there. But the challenge page doesn't reliably make that call — it talks
+to its own server and acts on the reply. So `verify_cli.py` watches the page's
+network traffic, picks the grant out of it, and calls the engine's address
+itself. If the page does redirect, the engine already has it and our call is
+harmless.
+
+The rest of this file is about *knowing* rather than *doing*: is there a
+session, when does it expire, can the solver actually run here (browser
+installed? `nodriver` installed?). That report shows up on
+`GET /downloader/verification` and inside `GET /downloader/status`, so a
+failing download has an obvious explanation instead of a mysterious one.
+`POST /downloader/verification` forces the job early rather than waiting for
+the next download to trigger it.
+
 ### `jobs.py` — the engine that runs everything
 
 This is the core of the backend. When a download job starts, this file:

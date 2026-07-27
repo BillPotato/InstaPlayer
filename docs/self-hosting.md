@@ -62,6 +62,12 @@ except `API_KEY`.
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-probe every N minutes so status answers instantly from the stored result. `0` disables. Each probe downloads one real track |
 | `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` binary. Unset = resolve from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
 | `LOG_RETENTION_DAYS` | `30` | Days of per-day log files (`data/logs/YYYY-MM-DD.jsonl`, browsable in `/admin`) to keep; older are pruned at startup. `0` = forever |
+| `SPOTIFLAC_ENGINE_HOME` | `/data/engine-home` (Docker) | The engine's `$HOME`. Its community session lives at `<here>/.spotiflac/community_session.json` — see [Community verification](#community-verification-captcha) |
+| `WITH_SOLVER` | `0` | **Build-time.** `1` puts Google Chrome + Xvfb in the image so the server can pass the captcha itself. Set it in `.env` so it survives rebuilds |
+| `TZ` | *(UTC)* | Container timezone, and so the solver's browser clock. The captcha's scoring compares it against the address the request came from, so set it to the host's zone |
+| `AUTO_VERIFY` | `true` | Let the engine pass the captcha itself. Needs `WITH_SOLVER=1`; with no browser available it logs why and falls back to the manual route |
+| `VERIFY_COMMAND` | *(unset)* | Override the solver invocation — a JSON array or a command line. The challenge URL is appended as the final argument |
+| `VERIFY_HOLD_OPEN` | `5` | Seconds the solver keeps the browser open after passing, so the page can hand the grant back to the engine |
 
 ---
 
@@ -73,15 +79,51 @@ Since SpotiFLAC v7.2.0 the community download endpoints sit behind a human verif
 without a valid one every download fails — usually as `browser integration is not ready`, or
 a bare "all sources failed".
 
-The headless engine can't open a browser, so the session has to be created somewhere that
-can:
+The server can do this itself, if you give it a browser to do it with:
+
+```bash
+cd backend
+echo "WITH_SOLVER=1" >> .env     # Google Chrome + a virtual screen in the image
+echo "TZ=Asia/Bangkok" >> .env   # your host's timezone (see below)
+docker compose build && docker compose up -d
+```
+
+That's the whole setup. Verification happens on demand — the first download that needs a
+session solves the captcha and writes the file, taking an extra minute or so, and it renews
+itself the same way when the session expires. To do it ahead of time, or to see where things
+stand:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" https://your-server/downloader/verification
+curl -X POST -H "Authorization: Bearer $API_KEY" https://your-server/downloader/verification
+```
+
+`POST` mints a session now (via a one-track probe, which is what triggers verification);
+`?force=true` discards the current one first. The same report rides along on
+`GET /downloader/status`.
+
+Put `WITH_SOLVER=1` in `.env` rather than passing `--build-arg`: compose reads `.env` when
+interpolating build args, so it survives every rebuild, whereas a `--build-arg` applies to
+one build and the next plain `docker compose build` quietly produces an image with no
+browser. `TZ` matters because a container is UTC while its traffic leaves from wherever the
+host is, and the captcha's scoring compares the two — only the offset really matters.
+
+To check the solver works on a given host at all, without involving the real service:
+
+```bash
+docker compose exec backend python -m turnstile_solver.selftest
+```
+
+**Without a browser** — no `WITH_SOLVER`, `AUTO_VERIFY=false`, or a solver that can't run —
+the engine logs the challenge URL and waits five minutes for someone to solve it. You can
+also create the session elsewhere and copy it in:
 
 1. Run the **official SpotiFLAC desktop app** on your PC and start any download. It opens
    the verification page — solve it once. That writes
    `%USERPROFILE%\.spotiflac\community_session.json` (Linux/macOS: `~/.spotiflac/`).
 2. Copy that file into the same relative location under the server engine's home directory.
    It's picked up on the next download; no restart needed.
-3. Repeat when it expires.
+3. Repeat when it expires. `GET /downloader/verification` shows `expiresAt`.
 
 If downloads keep failing and the session is fine, the usual cause is that the third-party
 proxy APIs are temporarily down or rate-limited. Set `DEFAULT_SERVICES=qobuz,amazon` to skip
