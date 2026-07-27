@@ -175,7 +175,9 @@ async def public_status(
     ids, Spotify URLs, error details, logs, or config — those stay behind the
     Bearer-authed admin endpoints.
     """
-    full = await downloader.status(settings, manager.has_active_jobs())
+    full = await downloader.status(
+        settings, manager.has_active_jobs(), include_verification=False
+    )
     hist = downloader.probe_history()
     admin = adminstate.get()
     active, last, probe = full["activeJob"], full["lastJob"], full["lastProbe"]

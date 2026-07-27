@@ -41,6 +41,14 @@ def test_non_loopback_callbacks_are_refused():
     assert verify_cli.callback_url(url) is None
 
 
+def test_non_http_callbacks_are_refused():
+    # The grant is a credential; only plain http to the engine's own loopback
+    # server is a legitimate destination for it.
+    for hostile in ("file://127.0.0.1/etc/passwd", "https://127.0.0.1:9/x"):
+        url = f"https://v.io/challenge?cb={urllib.parse.quote(hostile, safe='')}"
+        assert verify_cli.callback_url(url) is None
+
+
 def test_localhost_callback_is_accepted():
     local = "http://localhost:8080/session-grant?state=a"
     url = f"https://v.io/challenge?cb={urllib.parse.quote(local, safe='')}"

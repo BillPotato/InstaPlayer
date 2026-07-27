@@ -111,6 +111,7 @@ and stops its own browser.
 | `elapsed` | Wall-clock seconds |
 | `cached` | `True` if the token came from the cache, not a browser run |
 | `headless` | Whether Chrome actually ran headless |
+| `diagnostics` | Page state captured when the solve failed; `None` on success |
 
 `bool(result)` is true when either a token or a grant is present, and
 `result.value` gives the grant if there is one, else the token. Both matter
@@ -125,22 +126,26 @@ Frozen dataclass; every field has a working default.
 |---|---|---|
 | `chrome_path` | auto | Browser executable. `None` → `CHROME_PATH`/`BRAVE_PATH`, then the usual install paths, then `PATH` |
 | `profile_dir` | temp | Chrome `--user-data-dir`. `None` → `TS_PROFILE_DIR`, else a temp dir |
-| `offscreen` | `True` | Park the window at -32000,-32000 instead of showing it |
+| `offscreen` | `True` | Park the window off-screen instead of showing it. Ignored when headless, and on a virtual display we own — see [Headless hosts](#headless-hosts-docker-ci-a-vps) |
 | `browser_args` | `()` | Extra Chrome flags, appended last |
+| `drop_browser_args` | `("--disable-features=IsolateOrigins,site-per-process",)` | Flags removed from the driver's own defaults, matched by prefix. Site isolation **must** stay on or the widget never renders |
 | `headless` | `"auto"` | `"auto"`, `True` or `False` — see [Headless hosts](#headless-hosts-docker-ci-a-vps) |
 | `use_xvfb` | `True` | May start an Xvfb virtual display on a headless Linux host |
 | `xvfb_display` | `":99"` | `DISPLAY` for that server |
-| `xvfb_screen` | `"1280x900x24"` | Its geometry |
+| `xvfb_screen` | `"1920x1080x24"` | Its geometry. A common panel size on purpose — `screen.width`/`height` are fingerprinted |
 | `xvfb_binary` | `"Xvfb"` | Executable name or path |
 | `attempts` | `2` | Page reloads before giving up |
 | `attempt_timeout` | `45.0` | Seconds of clicking/polling per attempt |
 | `retry_delay` | `5.0` | Seconds between attempts |
 | `widget_wait` | `20.0` | Seconds to wait for the page's own widget before forcing one |
+| `pre_click_wait` | `15.0` | Seconds to watch the widget before touching it — a managed widget verifies unprompted |
 | `max_clicks` | `2` | Checkbox clicks per attempt |
 | `click_interval` | `12.0` | Seconds to wait for a token before clicking again |
 | `hold_open` | `0.0` | Seconds to keep the tab alive after success |
 | `capture_grant` | `True` | Watch the network and the address bar for a grant |
-| `grant_keys` | `("grant", "token", "code")` | Keys treated as a grant, in priority order |
+| `grant_keys` | `("grant", "token", "code")` | Keys treated as a grant, in priority order. Narrow this to `("grant",)` if the page might see other JSON carrying those names |
+| `capture_console` | `False` | Collect console output. Needs CDP's Runtime domain, whose presence a page can detect — debugging only |
+| `diagnostics_dir` | `None` | Where to write a screenshot, DOM and page state when a solve fails |
 | `cache_ttl` | `900.0` | Token cache lifetime; `0` disables |
 
 Rough worst case: `attempts × (widget_wait + attempt_timeout) + (attempts − 1) × retry_delay`,

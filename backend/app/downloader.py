@@ -246,7 +246,15 @@ def _job_summaries() -> tuple[dict | None, dict | None]:
         return last, active
 
 
-async def status(settings: Settings, active_jobs: bool) -> dict:
+async def status(
+    settings: Settings, active_jobs: bool, include_verification: bool = True
+) -> dict:
+    """Cheap availability report.
+
+    ``include_verification`` reads the community session file and checks that
+    a browser is installed, so the unauthenticated public status turns it off:
+    that work belongs behind auth, and nothing sanitized ever exposed it.
+    """
     loop = asyncio.get_running_loop()
     importable, import_error = check_importable()  # binary presence + --version
     installed = installed_version()
@@ -268,7 +276,7 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
         # Community session state. A download can't reach any provider without
         # one, so an invalid session here explains an otherwise baffling
         # "all sources failed" run.
-        "verification": verification.status_report(settings),
+        "verification": verification.status_report(settings) if include_verification else None,
         "lastProbe": _last_probe,
         "nextProbeAt": (
             datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()

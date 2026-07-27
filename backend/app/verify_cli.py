@@ -41,10 +41,13 @@ def callback_url(challenge_url: str) -> str | None:
     candidate = (params.get("cb") or [""])[0].strip()
     if not candidate:
         return None
-    # Only ever call back into the loopback server the engine started.
-    host = urllib.parse.urlparse(candidate).hostname
-    if host not in ("127.0.0.1", "localhost", "::1"):
-        log.warning("ignoring non-loopback callback %r", candidate)
+    # Only ever call back into the loopback HTTP server the engine started.
+    # The engine overwrites any `cb` the remote service supplied with its own,
+    # so this shouldn't be reachable — but the grant is a credential, and it
+    # costs nothing to refuse anything that isn't plain http to localhost.
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        log.warning("ignoring callback that is not loopback http: %r", candidate)
         return None
     return candidate
 
@@ -100,7 +103,14 @@ def main(argv: list[str] | None = None) -> int:
         "attempts": args.attempts,
         "attempt_timeout": args.attempt_timeout,
     }
-    config = SolverConfig(**{k: v for k, v in overrides.items() if v is not None})
+    config = SolverConfig(
+        **{k: v for k, v in overrides.items() if v is not None},
+        # Only a real `grant` counts here. The library also accepts "token"
+        # and "code" for pages that name it differently, but that would let
+        # any JSON the browser happens to see carry a value we then hand to
+        # the engine, which forwards it to the verification service.
+        grant_keys=("grant",),
+    )
 
     callback = callback_url(args.url)
     if callback is None:

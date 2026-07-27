@@ -333,7 +333,9 @@ class SolverConfig:
     #: How many times to reload the page and start over. Deliberately low: a
     #: widget that accepted the click and is verifying wants patience, not a
     #: reload, and repeatedly reloading a challenge looks worse than waiting.
-    attempts: int = 1
+    #: One retry is worth having, though — a transient failure otherwise
+    #: blocks downloads until something asks again.
+    attempts: int = 2
     #: Seconds to keep clicking/polling within a single attempt. A checkbox
     #: click puts the widget into "Verifying…" for several seconds before the
     #: token lands, so this needs headroom well past the click itself — and

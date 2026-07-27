@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from .config import SolverConfig
     from .errors import SolverError
-    from .solver import TurnstileSolver, _Session
+    from .solver import TurnstileSolver
 
     url, server = serve(sitekey)
     logger.info("serving the test page at %s with sitekey %s", url, sitekey)

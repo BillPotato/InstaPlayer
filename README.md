@@ -68,7 +68,9 @@ Every variable is optional except `API_KEY`.
 | `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` engine binary. Unset = resolve it from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
 | `LOG_RETENTION_DAYS` | `30` | How many days of per-day log files (`data/logs/YYYY-MM-DD.jsonl`, browsable in the `/admin` dashboard) to keep; older ones are pruned on startup. `0` = keep forever |
 | `SPOTIFLAC_ENGINE_HOME` | `/data/engine-home` (Docker) | Directory the engine uses as its `$HOME`. Its community-endpoint session lives at `<here>/.spotiflac/community_session.json` — see [Community verification](#community-verification-captcha). Unset = engine inherits the server process's HOME |
-| `AUTO_VERIFY` | `true` | Let the engine pass the community captcha itself via the bundled solver. Needs a browser (`--build-arg WITH_SOLVER=1` in Docker); with none available it logs why and falls back to the manual route |
+| `WITH_SOLVER` | `0` | **Build-time.** `1` puts Google Chrome + Xvfb in the image so the container can pass the verification captcha itself. Set it in `.env` so it survives rebuilds — see [Community verification](#community-verification-captcha) |
+| `TZ` | *(UTC)* | Container timezone, and so the solver's browser clock. Anti-bot scoring compares it against the address the request came from, so set it to the host's zone (only the offset matters) |
+| `AUTO_VERIFY` | `true` | Let the engine pass the community captcha itself via the bundled solver. Needs a browser in the image (`WITH_SOLVER=1`); with none available it logs why and falls back to the manual route |
 | `VERIFY_COMMAND` | *(unset)* | Override the solver invocation — a JSON array or a command line. The challenge URL is appended as the final argument |
 | `VERIFY_HOLD_OPEN` | `5` | Seconds the solver keeps the browser open after passing the challenge, so the page can hand the grant back to the engine |
 
