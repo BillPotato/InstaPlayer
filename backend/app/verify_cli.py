@@ -78,13 +78,85 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m app.verify_cli",
         description="Solve a SpotiFLAC community-verification challenge.",
     )
-    parser.add_argument("url", help="challenge URL handed over by the engine")
+    parser.add_argument(
+        "url",
+        nargs="?",
+        help="challenge URL handed over by the engine (omit with --status/--now)",
+    )
+    # Operator commands. The HTTP endpoints do the same things, but a shell on
+    # the server is often the only way in on a hosting platform — and the image
+    # has no curl.
+    parser.add_argument(
+        "--status", action="store_true", help="print the community session's state"
+    )
+    parser.add_argument(
+        "--now",
+        action="store_true",
+        help="mint a session now (downloads one track, which is what triggers it)",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="with --now, discard the current session first"
+    )
     parser.add_argument("--hold-open", type=float, default=5.0)
     parser.add_argument("--diagnostics-dir")
     parser.add_argument("--attempts", type=int)
     parser.add_argument("--attempt-timeout", type=float)
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
+
+
+def _report(settings) -> dict:
+    from . import verification
+
+    return verification.status_report(settings)
+
+
+def run_status() -> int:
+    """Print the session's state — present, valid, when it expires, and
+    whether the solver could mint a new one."""
+    import json as _json
+
+    from .config import get_settings
+
+    print(_json.dumps(_report(get_settings()), indent=2))
+    return 0
+
+
+def run_now(force: bool) -> int:
+    """Mint a session without going through HTTP.
+
+    The engine verifies lazily, when a community request needs signing, so
+    there is nothing to call directly — a one-track probe is what triggers it.
+    Same path the POST endpoint takes.
+    """
+    import asyncio
+
+    from . import downloader, verification
+    from .config import get_settings
+
+    settings = get_settings()
+    before = _report(settings)
+    if before["sessionValid"] and not force:
+        log.info("session already valid until %s (use --force to replace)",
+                 before["expiresAt"])
+        return 0
+    if not before["solverReady"]:
+        log.error("the solver cannot run here: %s", before["solverError"])
+        return 1
+
+    if force:
+        verification.clear_session()
+    log.info("verifying — this downloads one track and takes a minute or two")
+    probe = asyncio.run(downloader.probe(settings))
+
+    after = _report(settings)
+    if after["sessionValid"]:
+        log.info("session valid until %s", after["expiresAt"])
+        return 0
+    log.error("no session was minted. probe: %s", (probe.get("detail") or "")[:160])
+    log.error("diagnostics from the failed solve are under the data dir "
+              "(verify-diagnostics/), newest last")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -94,6 +166,13 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+
+    if args.status:
+        return run_status()
+    if args.now:
+        return run_now(args.force)
+    if not args.url:
+        build_parser().error("give a challenge URL, or use --status / --now")
 
     from turnstile_solver import SolverConfig, SolverError, TurnstileSolver
 

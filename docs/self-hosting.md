@@ -113,6 +113,26 @@ To check the solver works on a given host at all, without involving the real ser
 docker compose exec backend python -m turnstile_solver.selftest
 ```
 
+### From a shell on the server
+
+On a hosting platform the service console is often the easiest way in — and the image has no
+`curl`, so use these rather than hitting the HTTP endpoints. Everything runs from `/srv`:
+
+```bash
+python -m app.verify_cli --status          # is there a session, when does it expire
+python -m app.verify_cli --now             # mint one now (downloads one track)
+python -m app.verify_cli --now --force     # discard the current session first
+python -m turnstile_solver.selftest        # can this host solve a captcha at all
+python -m turnstile_solver.selftest --fingerprint   # egress address vs browser clock
+```
+
+`--fingerprint` is the one to run first on a new deployment: it names the `TZ` to set by
+comparing the browser's timezone against the address your traffic actually leaves from,
+which on a hosting provider is their region rather than yours.
+
+If a solve fails, `$DATA_DIR/verify-diagnostics/` holds a screenshot, the page's DOM and a
+JSON dump of its state, newest last.
+
 **Without a browser** — `WITH_SOLVER=0`, `AUTO_VERIFY=false`, or a solver that can't run —
 the engine logs the challenge URL and waits five minutes for someone to solve it. You can
 also create the session elsewhere and copy it in:
