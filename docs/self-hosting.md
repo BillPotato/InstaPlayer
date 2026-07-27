@@ -133,16 +133,55 @@ which on a hosting provider is their region rather than yours.
 If a solve fails, `$DATA_DIR/verify-diagnostics/` holds a screenshot, the page's DOM and a
 JSON dump of its state, newest last.
 
+### Known limitation: cloud hosting
+
+**The captcha is very unlikely to pass from a cloud provider.** Cloudflare scores the client,
+and a datacentre address counts heavily against it. Measured on 2026-07-28 with the same
+image, the same browser and a matching `TZ`, differing only in where the traffic left from:
+
+| Egress | Self-test | Real challenge |
+|---|---|---|
+| Home broadband | passes | **passes** |
+| Zeabur (Tencent Cloud, Singapore) | passes | **fails** |
+
+The self-test passing in both places is the point: it uses Cloudflare's test sitekey, which
+issues a token to anyone, so it proves the solver works and isolates the refusal to the
+address. In the logs the widget frame moves from `…/auto/fbE/new/…` to
+`…/auto/fbE/failure_retry/…` — the click lands and is rejected. It is not a solver bug, and
+no amount of solver work fixes it. The same address usually fails elsewhere too: Qobuz's API
+returns an Akamai `403 Access Denied` from that range regardless of the session.
+
+So on a cloud host, set `AUTO_VERIFY=false` and supply the session yourself, as below.
+
+> **Planned:** a session relay — an instance on a residential connection verifies on a
+> schedule and pushes the session to the hosted one over an authed endpoint, so the machine
+> that *can* solve the captcha does it for the machine that can't. Not built yet. It rests on
+> sessions being portable between machines, which is what the copy-it-in procedure below
+> already assumes; verify that first.
+
 **Without a browser** — `WITH_SOLVER=0`, `AUTO_VERIFY=false`, or a solver that can't run —
 the engine logs the challenge URL and waits five minutes for someone to solve it. You can
 also create the session elsewhere and copy it in:
 
-1. Run the **official SpotiFLAC desktop app** on your PC and start any download. It opens
-   the verification page — solve it once. That writes
-   `%USERPROFILE%\.spotiflac\community_session.json` (Linux/macOS: `~/.spotiflac/`).
+1. Get a session on a machine that can solve the captcha — either another InstaPlayer
+   instance on a home connection (`python -m app.verify_cli --now`, then read
+   `$DATA_DIR/engine-home/.spotiflac/community_session.json`), or the **official SpotiFLAC
+   desktop app**, which writes `%USERPROFILE%\.spotiflac\community_session.json`
+   (Linux/macOS: `~/.spotiflac/`).
 2. Copy that file into the same relative location under the server engine's home directory.
+   There's no editor in the image, so write it with a heredoc:
+
+   ```bash
+   mkdir -p /data/engine-home/.spotiflac
+   cat > /data/engine-home/.spotiflac/community_session.json <<'EOF'
+   ...paste the file...
+   EOF
+   chmod 600 /data/engine-home/.spotiflac/community_session.json
+   python -m app.verify_cli --status     # expect sessionValid: true
+   ```
+
    It's picked up on the next download; no restart needed.
-3. Repeat when it expires. `GET /downloader/verification` shows `expiresAt`.
+3. Repeat when it expires — roughly every six hours. `--status` shows `expiresAt`.
 
 If downloads keep failing and the session is fine, the usual cause is that the third-party
 proxy APIs are temporarily down or rate-limited. Set `DEFAULT_SERVICES=qobuz,amazon` to skip
