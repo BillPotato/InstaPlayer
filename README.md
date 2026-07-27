@@ -67,18 +67,61 @@ Every variable is optional except `API_KEY`.
 | `PROBE_INTERVAL_MINUTES` | `60` | Auto-run the probe every N minutes so `/downloader/probe` and the app's status card answer instantly from the stored result. `0` disables. Each probe downloads one track |
 | `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` engine binary. Unset = resolve it from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
 | `LOG_RETENTION_DAYS` | `30` | How many days of per-day log files (`data/logs/YYYY-MM-DD.jsonl`, browsable in the `/admin` dashboard) to keep; older ones are pruned on startup. `0` = keep forever |
-| `SPOTIFLAC_ENGINE_HOME` | `/data/engine-home` (Docker) | Directory the engine uses as its `$HOME`. Its community-endpoint session lives at `<here>/.spotiflac/community_session.json` — see [Community verification](#community-verification-one-time-captcha). Unset = engine inherits the server process's HOME |
+| `SPOTIFLAC_ENGINE_HOME` | `/data/engine-home` (Docker) | Directory the engine uses as its `$HOME`. Its community-endpoint session lives at `<here>/.spotiflac/community_session.json` — see [Community verification](#community-verification-captcha). Unset = engine inherits the server process's HOME |
+| `AUTO_VERIFY` | `true` | Let the engine pass the community captcha itself via the bundled solver. Needs a browser (`--build-arg WITH_SOLVER=1` in Docker); with none available it logs why and falls back to the manual route |
+| `VERIFY_COMMAND` | *(unset)* | Override the solver invocation — a JSON array or a command line. The challenge URL is appended as the final argument |
+| `VERIFY_HOLD_OPEN` | `5` | Seconds the solver keeps the browser open after passing the challenge, so the page can hand the grant back to the engine |
 
 The engine is the vendored **SpotiFLAC Go binary** (`backend/spotiflac-go/`), built from
 source into the image — not a pip package. To pull a newer upstream, run
 `scripts/update-spotiflac.sh` and rebuild the image; `GET /downloader/status` reports the
 engine's `version`.
 
-### Community verification (one-time captcha)
+### Community verification (captcha)
 
-Since SpotiFLAC v7.2.0 the community download endpoints require a one-time human
-verification (a Cloudflare check in a browser) that issues a signing **session**. The
-headless engine can't open a browser, so create the session on your PC and copy it in:
+Since SpotiFLAC v7.2.0 the community download endpoints require human verification (a
+Cloudflare Turnstile check) that issues a signing **session**, stored at
+`<SPOTIFLAC_ENGINE_HOME>/.spotiflac/community_session.json`. Sessions expire, and without a
+valid one every download fails — usually as `browser integration is not ready` or a bare
+"all sources failed".
+
+**Automatic (recommended).** The server can pass the challenge itself, using the bundled
+[`turnstile_solver`](backend/turnstile_solver/README.md) to drive a real browser. It needs
+a browser in the image, so build with the solver included:
+
+```bash
+cd backend
+echo "WITH_SOLVER=1" >> .env        # adds Google Chrome + xvfb to the image
+docker compose build && docker compose up -d
+```
+
+Put it in `.env` rather than passing `--build-arg WITH_SOLVER=1` on the command
+line: compose reads `.env` when interpolating build args, so it survives every
+later rebuild. A `--build-arg` applies to that one build only, and the next
+plain `docker compose build` silently produces an image with no browser — the
+symptom is `GET /downloader/verification` reporting `no Chromium-based browser
+found`.
+
+That's the whole setup. The engine verifies lazily — the first download that needs a
+session solves the captcha and writes the file, taking an extra minute or so. To do it
+ahead of time, or to check where things stand:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" https://host/downloader/verification
+curl -X POST -H "Authorization: Bearer $API_KEY" https://host/downloader/verification
+```
+
+`POST` mints a session now (by running a one-track probe, which is what triggers
+verification); add `?force=true` to discard the current one and start fresh. The same
+report rides along on `GET /downloader/status` as `verification`.
+
+Relevant settings: `AUTO_VERIFY=false` turns it off, `VERIFY_COMMAND` replaces the solver
+invocation, `VERIFY_HOLD_OPEN` tunes how long the browser lingers after solving.
+
+**Manual (fallback).** Without a browser — no `WITH_SOLVER`, `AUTO_VERIFY=false`, or a
+solver that can't run — the engine logs the challenge URL and waits. Either solve that URL
+in any browser on any machine within five minutes, or create the session elsewhere and copy
+it in:
 
 1. Run the **official SpotiFLAC desktop app** on your PC and start any download — it opens
    the verification page; solve it once. That writes
@@ -86,9 +129,7 @@ headless engine can't open a browser, so create the session on your PC and copy 
 2. Copy that file to the server at
    `data/engine-home/.spotiflac/community_session.json` (inside the mounted data volume;
    create the folders if needed), then it's picked up on the next download — no restart.
-3. When the session eventually expires, downloads fail with verification errors in the
-   `/admin` logs (e.g. `browser integration is not ready` or `session exchange returned
-   HTTP 401`) — repeat steps 1–2.
+3. Repeat when it expires. `GET /downloader/verification` shows `expiresAt`.
 
 **Tip:** If downloads are consistently failing, the most common cause is that the third-party
 proxy APIs the engine uses are temporarily down or rate-limited. Options:
