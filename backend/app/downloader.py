@@ -23,7 +23,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from . import adminstate
+from . import adminstate, verification
 from .config import Settings
 from .db import SessionLocal
 from .models import Job
@@ -265,6 +265,10 @@ async def status(settings: Settings, active_jobs: bool) -> dict:
         "activeJobs": active_jobs,
         "lastJob": last_job,
         "activeJob": active_job,
+        # Community session state. A download can't reach any provider without
+        # one, so an invalid session here explains an otherwise baffling
+        # "all sources failed" run.
+        "verification": verification.status_report(settings),
         "lastProbe": _last_probe,
         "nextProbeAt": (
             datetime.fromtimestamp(_next_probe_at, tz=timezone.utc).isoformat()

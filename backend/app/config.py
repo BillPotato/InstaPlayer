@@ -37,6 +37,23 @@ class Settings(BaseSettings):
     # engine's own default. Override via TRACK_MAX_RETRIES.
     track_max_retries: int = 6
 
+    # The engine's community endpoints need an HMAC session, minted by passing
+    # a Cloudflare Turnstile challenge. With this on, the engine solves it
+    # itself via the bundled turnstile_solver (needs a browser on the host —
+    # in Docker, build with --build-arg WITH_SOLVER=1). Off, or with no usable
+    # browser, the engine prints the challenge URL and waits for an admin to
+    # supply a session file the old way. See app/verification.py.
+    auto_verify: bool = True
+
+    # Override the solver invocation: a JSON array of arguments, or a command
+    # line. The challenge URL is appended as the final argument. Unset uses the
+    # bundled solver under the backend's own interpreter.
+    verify_command: str | None = None
+
+    # Seconds the solver keeps the browser open after passing the challenge, so
+    # the page can finish handing the grant back to the engine's callback.
+    verify_hold_open: float = 5.0
+
     # How long a finished job's files are kept for the device to fetch before
     # the reaper deletes them. The backend stores nothing permanently.
     job_retention_hours: float = 6.0

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import adminstate, downloader, logbuffer, sysinfo
+from . import adminstate, downloader, logbuffer, sysinfo, verification
 from .auth import require_auth
 from .config import Settings, get_settings
 from .db import SessionLocal, get_session, init_db
@@ -241,6 +241,57 @@ async def downloader_probe(
         if downloader.probing():
             raise HTTPException(409, "A probe is already running")
     return await downloader.probe_or_cached(settings, force)
+
+
+@app.get("/downloader/verification", dependencies=[Depends(require_auth)])
+def verification_status(settings: Settings = Depends(get_settings)) -> dict:
+    """Community-session state: is there one, when does it expire, and can the
+    engine mint a new one on its own? Never returns the session secret."""
+    return verification.status_report(settings)
+
+
+@app.post("/downloader/verification", dependencies=[Depends(require_auth)])
+async def run_verification(
+    force: bool = False,
+    settings: Settings = Depends(get_settings),
+    manager: JobManager = Depends(get_job_manager),
+) -> dict:
+    """Mint a community session now, instead of on the next download.
+
+    There is no way to ask the engine for a session directly — it verifies
+    lazily, when a community request needs signing. So this runs a probe (one
+    real track download), which triggers exactly that. Expect it to take a
+    minute or two: the solver has to drive a browser through the captcha.
+
+    Returns immediately if a valid session already exists; ``?force=true``
+    clears the current credentials first and verifies from scratch.
+    """
+    report = verification.status_report(settings)
+    if report["sessionValid"] and not force:
+        return {"status": "already-valid", "verification": report, "probe": None}
+    if not report["autoVerify"]:
+        raise HTTPException(
+            400,
+            "Automatic verification is disabled (AUTO_VERIFY=false); the engine "
+            "will print a challenge URL for an admin to solve by hand.",
+        )
+    if not report["solverReady"]:
+        raise HTTPException(503, f"The captcha solver cannot run: {report['solverError']}")
+    if manager.has_active_jobs():
+        raise HTTPException(409, "A download job is running; try again when it finishes")
+    if downloader.probing():
+        raise HTTPException(409, "A probe is already running")
+
+    if force:
+        verification.clear_session()
+
+    probe = await downloader.probe(settings)
+    after = verification.status_report(settings)
+    return {
+        "status": "verified" if after["sessionValid"] else "failed",
+        "verification": after,
+        "probe": probe,
+    }
 
 
 @app.get("/downloader/history", dependencies=[Depends(require_auth)])

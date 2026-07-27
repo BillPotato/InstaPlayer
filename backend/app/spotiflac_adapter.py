@@ -123,26 +123,37 @@ def engine_home() -> Path | None:
     """Directory the engine uses as ``$HOME``, from ``SPOTIFLAC_ENGINE_HOME``.
 
     Since v7.2.0 the community endpoints need an HMAC session stored at
-    ``$HOME/.spotiflac/community_session.json``. The headless engine can't
-    create one (the one-time verification needs a browser), so the admin copies
-    the file the official desktop app created after its captcha. Pointing the
-    engine's HOME at a dir under the mounted data volume (the Docker image sets
-    ``SPOTIFLAC_ENGINE_HOME=/data/engine-home``) makes that file easy to drop
-    in from the host and persistent across restarts. Unset → engine inherits
-    our own HOME (fine for local dev).
+    ``$HOME/.spotiflac/community_session.json``. The engine now mints that
+    itself — ``verification.py`` hands it a captcha solver — but the file still
+    wants to outlive the container, and an admin can still drop one in by hand.
+    Pointing the engine's HOME at a dir under the mounted data volume (the
+    Docker image sets ``SPOTIFLAC_ENGINE_HOME=/data/engine-home``) gives both.
+    Unset → engine inherits our own HOME (fine for local dev).
     """
     home = os.environ.get("SPOTIFLAC_ENGINE_HOME")
     return Path(home) if home else None
 
 
-def _engine_env() -> dict | None:
+def _engine_env() -> dict:
+    """Environment for the engine subprocess: our own, plus the engine ``HOME``
+    and the verification handoff.
+
+    ``SPOTIFLAC_VERIFY_CMD`` is what lets the engine pass the community captcha
+    without a human — see ``verification.engine_env``.
+    """
+    from . import verification  # late: verification reads engine_home() below
+
+    overrides: dict[str, str] = dict(verification.engine_env())
+
     home = engine_home()
-    if home is None:
-        return None  # inherit our environment untouched
-    with contextlib.suppress(Exception):
-        home.mkdir(parents=True, exist_ok=True)
-    # HOME for Linux (os.UserHomeDir), USERPROFILE for Windows dev runs.
-    return {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+    if home is not None:
+        with contextlib.suppress(Exception):
+            home.mkdir(parents=True, exist_ok=True)
+        # HOME for Linux (os.UserHomeDir), USERPROFILE for Windows dev runs.
+        overrides["HOME"] = str(home)
+        overrides["USERPROFILE"] = str(home)
+
+    return {**os.environ, **overrides}
 
 
 def run_spotiflac(
