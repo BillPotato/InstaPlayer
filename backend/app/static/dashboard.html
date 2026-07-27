@@ -76,6 +76,26 @@
   .minibtn { background: var(--card-hi); color: var(--text); border: 0; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 4px; }
   .minibtn.danger { color: var(--red); }
   .minibtn:hover { background: #333; }
+  .lvlbtn {
+    background: var(--card-hi); color: var(--dim); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+    cursor: pointer; margin-right: 4px;
+  }
+  .lvlbtn:hover { background: #303030; }
+  .lvlbtn.active[data-lvl=info] { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.15); }
+  .lvlbtn.active[data-lvl=warning] { border-color: var(--amber); color: #fcd34d; background: rgba(245,158,11,0.15); }
+  .lvlbtn.active[data-lvl=critical] { border-color: var(--red); color: #fca5a5; background: rgba(239,68,68,0.15); }
+  /* live preview of exactly what the public page will show */
+  #msgPreview .pv { border: 1px solid; border-radius: 10px; padding: 11px 13px; display: flex; gap: 10px; }
+  #msgPreview .pvt { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 2px; }
+  #msgPreview .pvb { font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  #msgPreview .pvb strong { font-weight: 800; }
+  #msgPreview .pv.info { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.40); }
+  #msgPreview .pv.info .pvt { color: #93c5fd; }
+  #msgPreview .pv.warning { background: rgba(245,158,11,0.11); border-color: rgba(245,158,11,0.45); }
+  #msgPreview .pv.warning .pvt { color: #fcd34d; }
+  #msgPreview .pv.critical { background: rgba(239,68,68,0.13); border-color: rgba(239,68,68,0.55); }
+  #msgPreview .pv.critical .pvt { color: #fca5a5; }
   #logbox {
     background: #0d0d0d; border: 1px solid var(--border); border-radius: 8px;
     font: 12px/1.45 ui-monospace, Consolas, "Courier New", monospace;
@@ -169,6 +189,18 @@
       <button id="msgSave">Set message</button>
       <button class="minibtn" id="msgClear">Clear</button>
     </div>
+    <div class="row" style="margin-top:8px">
+      <span style="font-size:12px;color:var(--dim)">Style:</span>
+      <span id="lvlBtns">
+        <button class="lvlbtn" data-lvl="info">&#8505; Announcement</button>
+        <button class="lvlbtn" data-lvl="warning">&#9888; Heads up</button>
+        <button class="lvlbtn" data-lvl="critical">&#128680; Important</button>
+      </span>
+      <span style="font-size:12px;color:var(--dim)">
+        Wrap words in <code style="background:var(--card-hi);padding:1px 5px;border-radius:4px">**stars**</code> to bold them.
+      </span>
+    </div>
+    <div id="msgPreview" style="display:none;margin-top:10px"></div>
     <div class="row" style="margin-top:12px">
       <button id="probeToggle">Pause probes</button>
       <span id="probeToggleState" style="font-size:13px;color:var(--dim)"></span>
@@ -384,6 +416,27 @@ function escapeHtml(s) {
 // ---- admin controls (public message, probe pause, history wipe) ---------
 let adminSettings = null;   // last GET /admin/settings body
 
+const LEVELS = {
+  info: { icon: 'ℹ', title: 'Announcement' },
+  warning: { icon: '⚠', title: 'Heads up' },
+  critical: { icon: '🚨', title: 'Important' },
+};
+let msgLevel = 'info';   // the level the admin has selected in the UI
+
+// Same **bold** rendering the public page does — escape first, then the only
+// markup that reaches the DOM is the <strong> we add.
+function richText(s) {
+  return escapeHtml(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+function renderPreview() {
+  const text = $('msgInput').value.trim();
+  const box = $('msgPreview');
+  box.style.display = text ? '' : 'none';
+  if (!text) return;
+  const spec = LEVELS[msgLevel] || LEVELS.info;
+  box.innerHTML = `<div class="pv ${msgLevel}"><span>${spec.icon}</span><div>` +
+    `<div class="pvt">${spec.title}</div><div class="pvb">${richText(text)}</div></div></div>`;
+}
 function renderControls() {
   if (!adminSettings) return;
   const paused = !!adminSettings.probesPaused;
@@ -394,7 +447,19 @@ function renderControls() {
   if (document.activeElement !== $('msgInput')) {
     $('msgInput').value = adminSettings.message || '';
   }
+  msgLevel = LEVELS[adminSettings.messageLevel] ? adminSettings.messageLevel : 'info';
+  document.querySelectorAll('.lvlbtn').forEach(
+    (b) => b.classList.toggle('active', b.dataset.lvl === msgLevel));
+  renderPreview();
 }
+document.querySelectorAll('.lvlbtn').forEach((b) => {
+  b.onclick = () => {
+    msgLevel = b.dataset.lvl;
+    document.querySelectorAll('.lvlbtn').forEach((x) => x.classList.toggle('active', x === b));
+    renderPreview();
+  };
+});
+$('msgInput').addEventListener('input', renderPreview);
 async function pollControls() {
   if (!apiKey) return;
   try {
@@ -422,7 +487,7 @@ async function putSettings(body, okMsg) {
 $('msgSave').onclick = () => {
   const v = $('msgInput').value.trim();
   if (!v) { toast('Type a message first (or use Clear)'); return; }
-  putSettings({ message: v }, 'Public message set');
+  putSettings({ message: v, messageLevel: msgLevel }, 'Public message set');
 };
 $('msgClear').onclick = () => putSettings({ message: '' }, 'Public message cleared');
 $('probeToggle').onclick = () => {
