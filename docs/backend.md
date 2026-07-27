@@ -115,11 +115,10 @@ It's a general-purpose library — usable on its own as
 letting the engine mint its own community session. `verification.py` below
 wires the two together.
 
-It needs a real browser, which the Docker image leaves out by default because
-it's big. Put `WITH_SOLVER=1` in `backend/.env` and the container gets Chrome
-plus a virtual screen (Xvfb) on every build — a `--build-arg` on the command
-line only counts for that one build, and the next rebuild quietly drops the
-browser. Full usage guide, including the headless options:
+It needs a real browser, and the Docker image ships one — Chrome plus a virtual
+screen (Xvfb) — because a build without it fails quietly: the only symptom is
+`solverReady: false` long after a successful build. `WITH_SOLVER=0` builds the
+slim image instead. Full usage guide, including the headless options:
 [`backend/turnstile_solver/README.md`](../backend/turnstile_solver/README.md).
 
 ### `verification.py` — getting past the captcha without a person

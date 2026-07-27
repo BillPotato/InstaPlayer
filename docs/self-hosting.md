@@ -63,7 +63,7 @@ except `API_KEY`.
 | `SPOTIFLAC_DL_BIN` | *(on `PATH`)* | Path to the `spotiflac-dl` binary. Unset = resolve from `PATH` (the image installs it to `/usr/local/bin`). Set only for a non-standard location |
 | `LOG_RETENTION_DAYS` | `30` | Days of per-day log files (`data/logs/YYYY-MM-DD.jsonl`, browsable in `/admin`) to keep; older are pruned at startup. `0` = forever |
 | `SPOTIFLAC_ENGINE_HOME` | `/data/engine-home` (Docker) | The engine's `$HOME`. Its community session lives at `<here>/.spotiflac/community_session.json` — see [Community verification](#community-verification-captcha) |
-| `WITH_SOLVER` | `0` | **Build-time.** `1` puts Google Chrome + Xvfb in the image so the server can pass the captcha itself. Set it in `.env` so it survives rebuilds |
+| `WITH_SOLVER` | `1` | **Build-time.** Puts Google Chrome + Xvfb in the image so the server can pass the captcha itself. `0` builds the slim image, several hundred MB smaller, but then the session file is yours to supply |
 | `TZ` | *(UTC)* | Container timezone, and so the solver's browser clock. The captcha's scoring compares it against the address the request came from, so set it to the host's zone |
 | `AUTO_VERIFY` | `true` | Let the engine pass the captcha itself. Needs `WITH_SOLVER=1`; with no browser available it logs why and falls back to the manual route |
 | `VERIFY_COMMAND` | *(unset)* | Override the solver invocation — a JSON array or a command line. The challenge URL is appended as the final argument |
@@ -79,12 +79,12 @@ Since SpotiFLAC v7.2.0 the community download endpoints sit behind a human verif
 without a valid one every download fails — usually as `browser integration is not ready`, or
 a bare "all sources failed".
 
-The server can do this itself, if you give it a browser to do it with:
+The server does this itself. The image ships with a browser, so all it needs is the right
+clock:
 
 ```bash
 cd backend
-echo "WITH_SOLVER=1" >> .env     # Google Chrome + a virtual screen in the image
-echo "TZ=Asia/Bangkok" >> .env   # your host's timezone (see below)
+echo "TZ=Asia/Bangkok" >> .env   # the timezone your traffic appears to come from
 docker compose build && docker compose up -d
 ```
 
@@ -102,11 +102,10 @@ curl -X POST -H "Authorization: Bearer $API_KEY" https://your-server/downloader/
 `?force=true` discards the current one first. The same report rides along on
 `GET /downloader/status`.
 
-Put `WITH_SOLVER=1` in `.env` rather than passing `--build-arg`: compose reads `.env` when
-interpolating build args, so it survives every rebuild, whereas a `--build-arg` applies to
-one build and the next plain `docker compose build` quietly produces an image with no
-browser. `TZ` matters because a container is UTC while its traffic leaves from wherever the
-host is, and the captcha's scoring compares the two — only the offset really matters.
+`TZ` matters because a container is UTC while its traffic leaves from wherever it's hosted,
+and the captcha's scoring compares the two. Set it to the zone your **egress address**
+appears to be in — on a hosting provider that's the provider's region, not yours. Only the
+offset really matters.
 
 To check the solver works on a given host at all, without involving the real service:
 
@@ -114,7 +113,7 @@ To check the solver works on a given host at all, without involving the real ser
 docker compose exec backend python -m turnstile_solver.selftest
 ```
 
-**Without a browser** — no `WITH_SOLVER`, `AUTO_VERIFY=false`, or a solver that can't run —
+**Without a browser** — `WITH_SOLVER=0`, `AUTO_VERIFY=false`, or a solver that can't run —
 the engine logs the challenge URL and waits five minutes for someone to solve it. You can
 also create the session elsewhere and copy it in:
 

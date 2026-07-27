@@ -257,21 +257,21 @@ weeks later. `result.headless` records which mode actually ran.
 
 ### In this repo's Docker image
 
-The backend image can carry the solver, off by default — the server never
-imports it, and chromium plus xvfb add several hundred MB:
+The backend image carries a browser by default, so `docker compose build` is
+all it takes. Build the slim image with:
 
 ```bash
-echo "WITH_SOLVER=1" >> backend/.env    # compose reads this for build args
-docker compose build && docker compose up -d
+docker compose build --build-arg WITH_SOLVER=0     # or WITH_SOLVER=0 in .env
 ```
 
-Keep it in `.env`. `--build-arg WITH_SOLVER=1` works for a single build, but
-the next plain `docker compose build` reverts to the default and produces an
-image with no browser — which surfaces later as `no Chromium-based browser
-found` from the solver, long after the build that caused it.
+The default is *on* because the failure is silent: a build with no browser
+reports success, and the only sign is `no Chromium-based browser found` from
+the solver, long afterwards. Platforms that build the Dockerfile directly
+rather than through compose may not offer a way to pass a build argument at
+all, which makes an opt-in default a trap.
 
-That installs `google-chrome-stable` (`chromium` on non-amd64, which Google
-doesn't build for), `xvfb`, `fonts-liberation` and `nodriver`. Chrome rather
+The full build installs `google-chrome-stable` (`chromium` on non-amd64, which
+Google doesn't build for), `xvfb`, fonts and `tzdata`. Chrome rather
 than Chromium on purpose: Turnstile scores the client, and a Chromium build on
 a datacentre address is an unusual enough fingerprint to count against you. The
 package itself is copied in either way; without the build arg it just has no

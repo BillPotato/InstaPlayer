@@ -29,23 +29,24 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# --- Optional: the Turnstile solver (turnstile_solver/) ---
-# Off by default. The server never imports the solver, and chromium + xvfb
-# add several hundred MB, so you only pay for them if you ask. Set it in
-# backend/.env — compose reads that when interpolating build args, so it
-# survives every rebuild:
+# --- The browser the Turnstile solver drives ---
+# On by default, because the alternative fails quietly. Without a browser the
+# container cannot mint its own community session, and the only symptom is
+# `solverReady: false` on /downloader/verification — long after a build that
+# reported success. A build argument is also easy to lose: it has to be passed
+# to every build, and platforms that build the Dockerfile directly (rather than
+# through compose) may not expose one at all.
 #
-#     echo "WITH_SOLVER=1" >> .env && docker compose build
+# Set WITH_SOLVER=0 to build the slim image instead; it costs several hundred
+# MB, and the server itself never imports the solver:
 #
-# (--build-arg on the command line works too, but applies to that one build
-# only; the next plain rebuild quietly drops the browser again.)
+#     docker compose build --build-arg WITH_SOLVER=0
 #
-# With it on, the container can run the community-verification captcha itself
-# (`docker compose exec backend python -m turnstile_solver <url>`) instead of
-# you copying in a session file produced by the desktop app. Xvfb is what
-# makes that work headlessly — the solver starts it on demand, and a real
-# browser on a virtual screen passes Turnstile far more often than Chrome's
-# headless mode does.
+# With the browser present, the container passes the community-verification
+# captcha itself instead of an admin copying in a session file from the desktop
+# app. Xvfb is what makes that work headlessly — the solver starts it on
+# demand, and a real browser on a virtual screen passes Turnstile far more
+# often than Chrome's headless mode does.
 # (nodriver itself is in requirements.txt; this arg is only about the browser.)
 #
 # Google Chrome rather than Debian's chromium, where one is available.
@@ -55,7 +56,7 @@ RUN pip install -r requirements.txt
 # sitekey silently withheld its token. Chrome is what the overwhelming
 # majority of real visitors run. Google only ships amd64 debs, so other
 # architectures keep chromium.
-ARG WITH_SOLVER=0
+ARG WITH_SOLVER=1
 RUN if [ "$WITH_SOLVER" = "1" ]; then \
         apt-get update \
         && apt-get install -y --no-install-recommends xvfb tzdata \
