@@ -11,6 +11,15 @@ they finish.
    Spotify link  ─►  download engine  ─►  your phone ─► enjoy
 ```
 
+## Demo
+
+<video src="https://github.com/user-attachments/assets/f60fcea4-1184-453d-af02-e233c6cb96f2" controls muted playsinline width="100%">
+  <a href="https://github.com/user-attachments/assets/f60fcea4-1184-453d-af02-e233c6cb96f2">Watch the demo video</a>
+</video>
+
+As mentioned in the video, I wrote about how and why I built this on my blog:
+**[My music downloader](https://billpotato.github.io/blog/posts/my-music-downloader/)**.
+
 ## What you get
 
 - **Real lossless audio** with metadata and artwork
