@@ -32,18 +32,26 @@ function serverStatus(status, statusState, colors) {
   if (statusState === 'error' || !status) {
     return { light: LIGHT_RED, label: 'Can’t reach server', ready: false, checking: false };
   }
-  const probeAgeMin = status.lastProbe?.at
-    ? Math.max(0, Math.round((Date.now() - Date.parse(status.lastProbe.at)) / 60000))
-    : null;
-  const probeFresh = probeAgeMin != null && probeAgeMin <= 90;
-  if (!status.importable) {
+  // The server computes the verdict (downloader.health_verdict) so this screen,
+  // the public page and /admin always agree. A failed job stops counting once a
+  // later probe succeeds, so a green server here really is downloadable.
+  const LABELS = {
+    engine: 'Downloads unavailable',
+    cooldown: 'Sources busy — try later',
+    probe: 'Downloads failing',
+    lastJob: 'Last download failed',
+  };
+  if (status.health?.ok === false) {
+    return {
+      light: LIGHT_RED,
+      label: LABELS[status.health.code] || 'Downloads unavailable',
+      ready: false,
+      checking: false,
+    };
+  }
+  if (status.health?.ok !== true && !status.importable) {
+    // Older server without `health`: fall back to the one field it always had.
     return { light: LIGHT_RED, label: 'Downloads unavailable', ready: false, checking: false };
-  }
-  if (probeFresh && status.lastProbe && !status.lastProbe.ok) {
-    return { light: LIGHT_RED, label: 'Downloads failing', ready: false, checking: false };
-  }
-  if (status.lastJob?.status === 'failed') {
-    return { light: LIGHT_RED, label: 'Last download failed', ready: false, checking: false };
   }
   return { light: LIGHT_GREEN, label: 'Server ready', ready: true, checking: false };
 }
