@@ -187,6 +187,7 @@ async def public_status(
         "message": admin["message"],          # admin-set banner (None = hidden)
         "messageLevel": admin["messageLevel"],
         "probesPaused": admin["probesPaused"],
+        "health": full["health"],             # same verdict the dashboard shows
         "importable": full["importable"],
         "quality": full["quality"],
         "services": full["services"],

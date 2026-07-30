@@ -161,6 +161,7 @@
       <button id="probeBtn" disabled>Force probe</button>
       <span id="probeState" style="font-size:13px;color:var(--dim)"></span>
     </div>
+    <div class="statusline bad" id="healthLine"></div>
     <div class="countdown" id="countdown"></div>
     <div class="statusline" id="probeLine"></div>
     <div style="margin-top:14px">
@@ -343,14 +344,16 @@ function render() {
     return;
   }
   const probing = !!status.probing;
-  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
-  const probeOk = status.lastProbe ? status.lastProbe.ok : null;
-  const bad = !status.importable || cooldownUntil || probeOk === false;
+  // Server-side verdict (downloader.health_verdict) — the same one the public
+  // page and the phone use, so the light here can't say green while they say red.
+  const health = status.health || {};
+  const bad = health.ok === false;
   light.classList.add(bad ? 'red' : 'green');
   if (probing) light.classList.add('pulse');
 
   $('meta').textContent =
     `${status.version || 'engine ?'} · sources: ${(status.services || []).join(', ')} · quality: ${status.quality || '?'}`;
+  $('healthLine').textContent = bad ? `Downloads blocked — ${health.reason || ''}` : '';
 
   // probe card
   $('probeBtn').disabled = probing || !!status.activeJob || !status.importable;

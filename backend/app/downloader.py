@@ -263,6 +263,8 @@ async def status(
     # frontend compatibility; there's simply never an "update available" hint.
     last_job, active_job = await loop.run_in_executor(None, _job_summaries)
     return {
+        # One verdict every client renders, so they can't disagree.
+        "health": health_verdict(importable, _last_probe, last_job),
         "importable": importable,
         "importError": import_error,
         "version": installed,
@@ -285,6 +287,63 @@ async def status(
         ),
         "probing": _probe_lock.locked(),
     }
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def health_verdict(importable: bool,
+                   last_probe: dict | None, last_job: dict | None) -> dict:
+    """The single "can users download right now?" answer.
+
+    Computed here so the admin dashboard, the public page and the phone all
+    agree — they used to each apply their own rule and disagree (a stale failed
+    job showed red on the phone while the dashboard was green).
+
+    A failed last job only counts while it is the most recent evidence: once a
+    probe succeeds *after* it, the failure is history and the verdict clears.
+    That's what makes "Force probe" fix a red light, which is what an operator
+    expects it to do.
+
+    Reasons are deliberately generic: this verdict is served unauthenticated on
+    ``/public/status``. The diagnostic text (``importError``, probe ``detail``)
+    stays on the authed endpoints.
+    """
+    if not importable:
+        return {"ok": False, "code": "engine",
+                "reason": "The download engine is not available."}
+
+    cooldown_until = _parse_iso((last_probe or {}).get("cooldownUntil"))
+    if cooldown_until and cooldown_until > datetime.now(timezone.utc):
+        return {"ok": False, "code": "cooldown",
+                "reason": "The music sources are rate-limiting us right now."}
+
+    probe_at = _parse_iso((last_probe or {}).get("at"))
+    if last_probe is not None and last_probe.get("ok") is False:
+        return {"ok": False, "code": "probe",
+                "reason": "The last health check could not download a song."}
+
+    if last_job and last_job.get("status") == "failed":
+        job_at = _parse_iso(last_job.get("updatedAt"))
+        # Superseded by a newer successful probe? Then it's no longer the truth.
+        superseded = (
+            probe_at is not None
+            and (last_probe or {}).get("ok") is True
+            and job_at is not None
+            and probe_at >= job_at
+        )
+        if not superseded:
+            return {"ok": False, "code": "lastJob",
+                    "reason": "The most recent download failed."}
+
+    return {"ok": True, "code": "ready", "reason": "Downloads are working."}
 
 
 async def probe(settings: Settings) -> dict:

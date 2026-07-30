@@ -345,29 +345,24 @@ function render() {
     $('banner').classList.remove('show');
     return;
   }
-  const cooldownUntil = status.lastProbe && status.lastProbe.cooldownUntil;
-  const probeOk = status.lastProbe ? status.lastProbe.ok : null;
-  const lastFailed = status.lastJob && status.lastJob.status === 'failed';
-  // Red = anything that blocks downloads right now (same rule as the app).
-  const bad = !status.importable || !!cooldownUntil || probeOk === false || lastFailed;
+  // The server decides working/not (see downloader.health_verdict) so this
+  // page, /admin and the phone can never disagree about it.
+  const health = status.health || {};
+  const bad = health.ok === false;
   hero.classList.add(bad ? 'bad' : 'ok');
   if (status.probing) dot.classList.add('pulse');
   word.textContent = bad ? 'Not working' : 'Working';
 
   // one specific, plain-words reason for the current state
-  if (!status.importable) {
-    reason.textContent = 'The download engine is not working - it may be down or out of sync with its upstream services.';
-  } else if (cooldownUntil) {
-    reason.textContent = 'The music sources are rate-limiting us - downloads resume when the timer below runs out.';
-  } else if (probeOk === false) {
-    reason.textContent = 'The last health check could not download a song, so downloads are unavailable right now.';
-  } else if (lastFailed) {
-    reason.textContent = 'The most recent download failed - the next one may fail too.';
-  } else if (status.probing) {
-    reason.textContent = 'Running a health check right now…';
-  } else {
-    reason.textContent = 'Everything looks good - downloads should work.';
-  }
+  const REASONS = {
+    engine: 'The download engine is not working - it may be down or out of sync with its upstream services.',
+    cooldown: 'The music sources are rate-limiting us - downloads resume when the timer below runs out.',
+    probe: 'The last health check could not download a song, so downloads are unavailable right now.',
+    lastJob: 'The most recent download failed - the next one may fail too.',
+  };
+  reason.textContent = REASONS[health.code]
+    || (status.probing ? 'Running a health check right now…'
+                       : 'Everything looks good - downloads should work.');
 
   renderBanner();
 
