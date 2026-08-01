@@ -17,14 +17,16 @@ they finish.
   <a href="https://github.com/user-attachments/assets/f60fcea4-1184-453d-af02-e233c6cb96f2">Watch the demo video</a>
 </video>
 
-As mentioned in the video, I wrote about how and why I built this on my blog:
-**[My music downloader](https://billpotato.github.io/blog/posts/my-music-downloader/)**.
+**Update**: Upstream has added a CAPTCHA that breaks my deployed instance. You can still use it locally. Read my blog to see how I plan to fix it.
+**[Overview (Part 1)](https://billpotato.github.io/blog/posts/my-music-downloader/)**
+
+**[Captcha problem (Part 2)](https://billpotato.github.io/blog/posts/cloudflare-broke-my-music-downloader/)**
 
 ## What you get
 
 - **Real lossless audio** with metadata and artwork
-- **Offline playability** because songs are stored on your phone
-- **Music player with QoL features** Spotify-style app with search, sleep timer, lock-screen controls
+- **Offline playability**
+- **Music player with QoL features**
 - **Your own server** you can self-host the server for your friend/family to use
 
 ## Getting started
