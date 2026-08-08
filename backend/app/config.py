@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     # the page can finish handing the grant back to the engine's callback.
     verify_hold_open: float = 5.0
 
+    # Route the solver's browser through a proxy —
+    # "scheme://[user:pass@]host:port". The captcha scores the client, and a
+    # datacentre address is refused where a residential one passes, so on a
+    # cloud host this is what makes verification work at all. Only the browser
+    # uses it; downloads stay on the direct path, which keeps a traffic-billed
+    # proxy cheap. Prefer a sticky session — one solve spans several requests
+    # and they must share an exit address. Set TZ to match the exit's country.
+    verify_proxy: str | None = None
+
     # How long a finished job's files are kept for the device to fetch before
     # the reaper deletes them. The backend stores nothing permanently.
     job_retention_hours: float = 6.0

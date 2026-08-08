@@ -98,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="with --now, discard the current session first"
     )
     parser.add_argument("--hold-open", type=float, default=5.0)
+    parser.add_argument(
+        "--proxy",
+        help="route the browser through scheme://[user:pass@]host:port "
+        "(downloads stay direct)",
+    )
     parser.add_argument("--diagnostics-dir")
     parser.add_argument("--attempts", type=int)
     parser.add_argument("--attempt-timeout", type=float)
@@ -181,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         "diagnostics_dir": args.diagnostics_dir,
         "attempts": args.attempts,
         "attempt_timeout": args.attempt_timeout,
+        "proxy": args.proxy,
     }
     config = SolverConfig(
         **{k: v for k, v in overrides.items() if v is not None},

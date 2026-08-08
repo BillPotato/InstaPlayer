@@ -68,6 +68,7 @@ except `API_KEY`.
 | `AUTO_VERIFY` | `true` | Let the engine pass the captcha itself. Needs `WITH_SOLVER=1`; with no browser available it logs why and falls back to the manual route |
 | `VERIFY_COMMAND` | *(unset)* | Override the solver invocation — a JSON array or a command line. The challenge URL is appended as the final argument |
 | `VERIFY_HOLD_OPEN` | `5` | Seconds the solver keeps the browser open after passing, so the page can hand the grant back to the engine |
+| `VERIFY_PROXY` | *(unset)* | Route the solver's browser through `scheme://[user:pass@]host:port`. Usually what makes verification work on a cloud host. Browser only — downloads stay direct |
 
 ---
 
@@ -151,7 +152,28 @@ address. In the logs the widget frame moves from `…/auto/fbE/new/…` to
 no amount of solver work fixes it. The same address usually fails elsewhere too: Qobuz's API
 returns an Akamai `403 Access Denied` from that range regardless of the session.
 
-So on a cloud host, set `AUTO_VERIFY=false` and supply the session yourself, as below.
+**The fix is a residential proxy for the browser.** The egress address is the whole problem,
+so change it:
+
+```bash
+# in backend/.env — a sticky residential session, and a matching timezone
+VERIFY_PROXY=http://user:password@gate.provider.com:8080
+TZ=Asia/Singapore          # the exit's country, not the host's
+```
+
+Only the browser goes through it; downloads stay on the direct path, so a proxy billed by
+traffic costs a few MB per verification rather than gigabytes. Use a **sticky** session — one
+solve spans several requests that have to share an exit address — and confirm it took:
+
+```bash
+python -m turnstile_solver.selftest --fingerprint   # egress should now be the proxy's
+python -m app.verify_cli --now
+```
+
+Credentials are stripped from Chrome's command line and supplied over CDP instead, and
+loopback is always bypassed so the engine's callback still works.
+
+Without a proxy, set `AUTO_VERIFY=false` and supply the session yourself, as below.
 
 > **Planned:** a session relay — an instance on a residential connection verifies on a
 > schedule and pushes the session to the hosted one over an authed endpoint, so the machine

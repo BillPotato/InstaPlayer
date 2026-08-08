@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -302,6 +303,21 @@ class SolverConfig:
     #: Extra Chrome command-line flags, appended last.
     browser_args: tuple[str, ...] = ()
 
+    #: Route the browser through a proxy: ``scheme://[user:pass@]host:port``.
+    #: The point is the exit address — a challenge scores the client, and a
+    #: datacentre address is refused where a residential one passes. Only the
+    #: browser uses this; the engine's downloads stay on the direct path,
+    #: which matters when the proxy is billed by traffic.
+    #:
+    #: Use a *sticky* session if the provider offers one. A solve is several
+    #: round trips and they must all come from the same address.
+    proxy: str | None = None
+
+    #: Hosts the browser reaches directly, never through the proxy. Loopback
+    #: has to be here: the engine's verification callback lives on 127.0.0.1,
+    #: and so does the self-test's own page.
+    proxy_bypass: str = "127.0.0.1,localhost,[::1],<local>"
+
     #: Flags to strip from the driver's own defaults, matched by prefix.
     #:
     #: ``nodriver`` disables site isolation by default, which suits most
@@ -379,6 +395,25 @@ class SolverConfig:
     #: Never used when ``capture_grant`` or ``hold_open`` is set — those want
     #: live side effects, which a cached token would skip.
     cache_ttl: float = 900.0
+
+    def proxy_parts(self) -> tuple[str, str | None, str | None]:
+        """Split ``proxy`` into (server, username, password).
+
+        Chrome's ``--proxy-server`` takes no credentials, so they have to come
+        out of the URL and go back in over CDP when the proxy asks for them.
+        Returns ``("", None, None)`` when no proxy is configured.
+        """
+        if not self.proxy:
+            return "", None, None
+        parsed = urllib.parse.urlparse(self.proxy)
+        if not parsed.hostname:
+            # Tolerate a bare "host:port" with no scheme.
+            parsed = urllib.parse.urlparse(f"http://{self.proxy}")
+        port = f":{parsed.port}" if parsed.port else ""
+        server = f"{parsed.scheme or 'http'}://{parsed.hostname}{port}"
+        username = urllib.parse.unquote(parsed.username) if parsed.username else None
+        password = urllib.parse.unquote(parsed.password) if parsed.password else None
+        return server, username, password
 
     def resolved_chrome_path(self) -> str:
         return find_browser(self.chrome_path)
@@ -474,6 +509,9 @@ class SolverConfig:
             args += ["--window-position=-32000,-32000", "--window-size=1920,1080"]
         elif self.offscreen:
             args.append("--window-size=1920,1080")
+        server, _, _ = self.proxy_parts()
+        if server:
+            args += [f"--proxy-server={server}", f"--proxy-bypass-list={self.proxy_bypass}"]
         args += _sandbox_flags()
         args += self.browser_args
         return args

@@ -88,6 +88,9 @@ def main(argv: list[str] | None = None) -> int:
         help="report the signals anti-bot scripts read from this browser",
     )
     parser.add_argument("--show-window", action="store_true")
+    parser.add_argument(
+        "--proxy", help="route the browser through scheme://[user:pass@]host:port"
+    )
     parser.add_argument("--attempts", type=int, default=1)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
@@ -115,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         capture_grant=False,  # nothing issues a grant here; we want the token
         offscreen=not args.show_window,
         attempts=args.attempts,
+        proxy=args.proxy,
     )
 
     if args.fingerprint:

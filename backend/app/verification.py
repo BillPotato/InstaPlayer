@@ -147,7 +147,7 @@ def solver_argv(settings: Settings) -> list[str]:
         else:
             return shlex.split(override, posix=os.name != "nt")
 
-    return [
+    argv = [
         sys.executable,
         "-m",
         # Not turnstile_solver directly: the challenge page doesn't reliably
@@ -164,6 +164,9 @@ def solver_argv(settings: Settings) -> list[str]:
         "--diagnostics-dir",
         str(settings.data_dir / "verify-diagnostics"),
     ]
+    if (settings.verify_proxy or "").strip():
+        argv += ["--proxy", settings.verify_proxy.strip()]
+    return argv
 
 
 def solver_ready() -> tuple[bool, str | None]:
