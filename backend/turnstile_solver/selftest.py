@@ -25,6 +25,7 @@ import functools
 import http.server
 import json
 import logging
+import os
 import socket
 import sys
 import threading
@@ -89,7 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--show-window", action="store_true")
     parser.add_argument(
-        "--proxy", help="route the browser through scheme://[user:pass@]host:port"
+        "--proxy",
+        default=os.environ.get("TS_PROXY") or None,
+        help="route the browser through scheme://[user:pass@]host:port. "
+        "Defaults to $TS_PROXY — but note that variable is set for the "
+        "solver's subprocess, not for an interactive shell, so from a shell "
+        "prefer `python -m app.verify_cli --fingerprint`, which reads the "
+        "application's own configuration",
     )
     parser.add_argument("--attempts", type=int, default=1)
     parser.add_argument("-v", "--verbose", action="store_true")

@@ -118,5 +118,49 @@ def test_a_dead_callback_is_not_fatal(monkeypatch):
     assert verify_cli.deliver_grant(CALLBACK, "gr_abc") is False
 
 
+# --- the fingerprint shortcut --------------------------------------------
+
+
+def test_fingerprint_delegates_with_the_configured_proxy(monkeypatch):
+    """The whole point of this flag: the solver's self-test knows nothing
+    about the app's settings, so run from a shell it would measure the
+    unproxied address and look like a broken proxy."""
+    from turnstile_solver import selftest
+
+    from app import verification
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(verification, "proxy_url", lambda _s: "http://u:p@gate:1")
+    monkeypatch.setattr(verify_cli, "apply_timezone", lambda *a, **k: None)
+    monkeypatch.setattr(selftest, "main", fake_main)
+
+    assert verify_cli.run_fingerprint() == 0
+    assert seen["argv"] == ["--fingerprint", "--proxy", "http://u:p@gate:1"]
+
+
+def test_fingerprint_without_a_proxy_still_runs(monkeypatch):
+    from turnstile_solver import selftest
+
+    from app import verification
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(verification, "proxy_url", lambda _s: None)
+    monkeypatch.setattr(verify_cli, "apply_timezone", lambda *a, **k: None)
+    monkeypatch.setattr(selftest, "main", fake_main)
+
+    assert verify_cli.run_fingerprint() == 0
+    assert seen["argv"] == ["--fingerprint"]
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([os.path.abspath(__file__), "-q"]))

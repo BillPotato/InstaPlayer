@@ -123,15 +123,19 @@ On a hosting platform the service console is often the easiest way in — and th
 
 ```bash
 python -m app.verify_cli --status          # is there a session, when does it expire
+python -m app.verify_cli --fingerprint     # egress address vs browser clock
 python -m app.verify_cli --now             # mint one now (downloads one track)
 python -m app.verify_cli --now --force     # discard the current session first
 python -m turnstile_solver.selftest        # can this host solve a captcha at all
-python -m turnstile_solver.selftest --fingerprint   # egress address vs browser clock
 ```
 
-`--fingerprint` is the one to run first on a new deployment: it names the `TZ` to set by
-comparing the browser's timezone against the address your traffic actually leaves from,
-which on a hosting provider is their region rather than yours.
+`--fingerprint` is the one to run first on a new deployment: it reports the address your
+traffic actually leaves from — through the configured proxy, if there is one — and checks
+the browser's clock against it.
+
+The solver's own `selftest` is the lower-level tool. It answers "can this machine solve a
+captcha at all", but it reads only its own command line, so pass `--proxy` explicitly if you
+want it to go through one.
 
 If a solve fails, `$DATA_DIR/verify-diagnostics/` holds a screenshot, the page's DOM and a
 JSON dump of its state, newest last.
@@ -179,9 +183,14 @@ traffic costs a few MB per verification rather than gigabytes. Use a **sticky** 
 solve spans several requests that have to share an exit address — and confirm it took:
 
 ```bash
-python -m turnstile_solver.selftest --fingerprint   # egress should now be the proxy's
+python -m app.verify_cli --fingerprint   # egress should now be the proxy's exit
 python -m app.verify_cli --now
 ```
+
+Use `app.verify_cli --fingerprint` rather than the solver's own self-test here: the self-test
+takes a proxy on its command line and knows nothing about this application's settings, so
+from a shell it reports the *host's* address and looks exactly like a proxy that isn't
+working.
 
 Credentials are stripped from Chrome's command line and supplied over CDP instead, and
 loopback is always bypassed so the engine's callback still works.
