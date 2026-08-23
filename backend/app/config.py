@@ -72,16 +72,30 @@ class Settings(BaseSettings):
     verify_proxy: str | None = None
 
     # Also send the *engine's* traffic through that proxy, not just the
-    # browser's. The community API signs requests against the session, and it
-    # appears to reject one presented from an address other than the one that
-    # solved the captcha ("Signed request validation failed"), so solving
-    # through a proxy while signing from the host's own address fails. Needs a
-    # STICKY proxy session, or each request exits from a different address and
-    # the mismatch persists.
+    # browser's. Turn this on whenever a proxy is set: the community API binds
+    # the session to the address that solved the captcha, so signing from
+    # anywhere else fails with 401 "Signed request validation failed" even
+    # though the session itself is valid. Measured — with it off the API
+    # refuses every signed request; with it on the same session is accepted.
     #
-    # Costs bandwidth: track downloads go the same way. Leave off unless the
-    # 401 is what you're fighting, and watch the proxy's traffic meter.
+    # Requires a STICKY proxy session, or each request exits from a different
+    # address and the mismatch simply moves around. It also gets Qobuz working
+    # from a datacentre host, which otherwise returns an Akamai 403.
+    #
+    # Routed through a local splitter (app/proxy_splitter.py) so only the
+    # hosts named in PROXY_HOSTS actually use the paid exit; everything else,
+    # notably the audio, goes direct. With PROXY_HOSTS empty the splitter
+    # sends everything direct and just logs what the engine contacts, which
+    # is how you find out what belongs in the list.
     proxy_engine: bool = False
+
+    # Host suffixes that must leave through the residential proxy. Matching is
+    # by domain boundary: "example.com" covers "api.example.com" but not
+    # "notexample.com".
+    proxy_hosts: str = ""
+
+    # Loopback port for the splitter. Only needs changing on a clash.
+    proxy_split_port: int = 18080
 
     # Timezone the solver's browser reports. Scoring compares it against the
     # address the request came from, which through a proxy is the *exit's*
