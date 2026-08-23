@@ -68,6 +68,9 @@ except `API_KEY`.
 | `AUTO_VERIFY` | `true` | Let the engine pass the captcha itself. Needs `WITH_SOLVER=1`; with no browser available it logs why and falls back to the manual route |
 | `VERIFY_COMMAND` | *(unset)* | Override the solver invocation — a JSON array or a command line. The challenge URL is appended as the final argument |
 | `VERIFY_HOLD_OPEN` | `5` | Seconds the solver keeps the browser open after passing, so the page can hand the grant back to the engine |
+| `PROXY_HOST` / `PROXY_PORT` / `PROXY_LOGIN` / `PROXY_PASSWORD` / `PROXY_SCHEME` | *(unset)* | Proxy for the solver's browser, as parts so credentials need no escaping. Usually what makes verification work on a cloud host. Browser only — downloads stay direct |
+| `VERIFY_PROXY` | *(unset)* | The same thing as one `scheme://[user:pass@]host:port` URL; wins over the parts above |
+| `VERIFY_TIMEZONE` | `auto` | Timezone the browser reports. `auto` matches the proxy exit's location; a zone name pins it; empty leaves the container's `TZ` |
 
 ---
 
@@ -151,7 +154,39 @@ address. In the logs the widget frame moves from `…/auto/fbE/new/…` to
 no amount of solver work fixes it. The same address usually fails elsewhere too: Qobuz's API
 returns an Akamai `403 Access Denied` from that range regardless of the session.
 
-So on a cloud host, set `AUTO_VERIFY=false` and supply the session yourself, as below.
+**The fix is a residential proxy for the browser.** The egress address is the whole problem,
+so change it:
+
+```bash
+# in backend/.env — a sticky residential session
+PROXY_HOST=gw.provider.com
+PROXY_PORT=10000
+PROXY_LOGIN=your-login
+PROXY_PASSWORD=your-password
+```
+
+The browser's timezone follows the proxy automatically (`VERIFY_TIMEZONE=auto`, the
+default): it resolves the exit's location and matches it, so a US proxy on a Singapore host
+needs no further configuration. `TZ` keeps governing the container and its logs. Pin it with
+`VERIFY_TIMEZONE=America/New_York` if you'd rather not have the lookup happen.
+
+Credentials are read from these four rather than a URL so a password full of `@` and `:`
+needs no escaping, and they reach the browser through the environment — never the command
+line, so they stay out of `ps` and out of the status endpoint's response.
+
+Only the browser goes through it; downloads stay on the direct path, so a proxy billed by
+traffic costs a few MB per verification rather than gigabytes. Use a **sticky** session — one
+solve spans several requests that have to share an exit address — and confirm it took:
+
+```bash
+python -m turnstile_solver.selftest --fingerprint   # egress should now be the proxy's
+python -m app.verify_cli --now
+```
+
+Credentials are stripped from Chrome's command line and supplied over CDP instead, and
+loopback is always bypassed so the engine's callback still works.
+
+Without a proxy, set `AUTO_VERIFY=false` and supply the session yourself, as below.
 
 > **Planned:** a session relay — an instance on a residential connection verifies on a
 > schedule and pushes the session to the hosted one over an authed endpoint, so the machine

@@ -21,7 +21,10 @@ from app.config import Settings  # noqa: E402
 
 
 def _settings(**overrides) -> Settings:
-    return Settings(api_key="test-key", **overrides)
+    # _env_file=None keeps the developer's real backend/.env out of the tests.
+    # Without it these read whatever is configured locally — proxy credentials
+    # included — so results depend on the machine and secrets end up in output.
+    return Settings(_env_file=None, api_key="test-key", **overrides)
 
 
 def _iso(delta: timedelta) -> str:
@@ -158,6 +161,68 @@ def test_malformed_json_override_falls_back_to_the_default():
 # --- engine environment ---------------------------------------------------
 
 
+# --- proxy configuration -------------------------------------------------
+
+
+def test_proxy_url_from_parts():
+    url = verification.proxy_url(_settings(
+        proxy_host="gate.example.com", proxy_port=823,
+        proxy_login="bob", proxy_password="s3cr3t",
+    ))
+    assert url == "http://bob:s3cr3t@gate.example.com:823"
+
+
+def test_proxy_parts_are_quoted():
+    # The split form exists so a password full of @ and : just works.
+    url = verification.proxy_url(_settings(
+        proxy_host="gate", proxy_port=1, proxy_login="u@mail", proxy_password="p@ss:1",
+    ))
+    assert url == "http://u%40mail:p%40ss%3A1@gate:1"
+
+
+def test_proxy_url_without_credentials():
+    assert verification.proxy_url(
+        _settings(proxy_host="gate", proxy_port=8080)
+    ) == "http://gate:8080"
+
+
+def test_explicit_proxy_url_wins():
+    assert verification.proxy_url(_settings(
+        proxy_host="parts", proxy_port=1, verify_proxy="socks5://whole:9",
+    )) == "socks5://whole:9"
+
+
+def test_no_proxy_configured():
+    assert verification.proxy_url(_settings()) is None
+    assert verification.proxy_endpoint(_settings()) is None
+
+
+def test_proxy_endpoint_hides_credentials():
+    settings = _settings(
+        proxy_host="gate.example.com", proxy_port=823,
+        proxy_login="bob", proxy_password="s3cr3t",
+    )
+    assert verification.proxy_endpoint(settings) == "gate.example.com:823"
+
+
+def test_credentials_never_reach_argv_or_the_report(monkeypatch):
+    # argv shows up in `ps` and is echoed back by the status endpoint.
+    monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
+    settings = _settings(
+        proxy_host="gate", proxy_port=823, proxy_login="bob", proxy_password="s3cr3t",
+    )
+    assert "s3cr3t" not in json.dumps(verification.solver_argv(settings))
+    assert "s3cr3t" not in json.dumps(verification.status_report(settings))
+    # It travels in the environment instead.
+    assert verification.engine_env(settings)["TS_PROXY"].endswith("@gate:823")
+
+
+def test_env_clears_a_stale_proxy(monkeypatch):
+    monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
+    env = verification.engine_env(_settings())
+    assert env["TS_PROXY"] == ""  # explicit, so the child can't inherit one
+
+
 def test_env_carries_the_command_as_json(monkeypatch):
     monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
     env = verification.engine_env(_settings())
@@ -180,19 +245,30 @@ def test_env_preserves_an_existing_pythonpath(monkeypatch):
     assert env["PYTHONPATH"].endswith(f"{os.pathsep}/somewhere/else")
 
 
+#: Every key empty (not absent): a stale value in our own environment must
+#: never reach the child, whichever way verification ends up disabled.
+_DISABLED_ENV = {"SPOTIFLAC_VERIFY_CMD": "", "TS_PROXY": "", "TS_TIMEZONE": ""}
+
+
 def test_env_disables_verification_when_the_solver_is_unusable(monkeypatch):
     monkeypatch.setattr(verification, "solver_ready", lambda: (False, "no browser"))
-    # Empty (not absent): the engine must not inherit a stale value from us.
-    assert verification.engine_env(_settings()) == {"SPOTIFLAC_VERIFY_CMD": ""}
+    assert verification.engine_env(_settings()) == _DISABLED_ENV
 
 
 def test_env_disabled_by_setting(monkeypatch):
     monkeypatch.setattr(
         verification, "solver_ready", lambda: pytest.fail("should not probe the solver")
     )
-    assert verification.engine_env(_settings(auto_verify=False)) == {
-        "SPOTIFLAC_VERIFY_CMD": ""
-    }
+    assert verification.engine_env(_settings(auto_verify=False)) == _DISABLED_ENV
+
+
+def test_disabled_env_clears_a_proxy_too(monkeypatch):
+    # Turning verification off must not leave credentials in the child's
+    # environment for a solver that will never run.
+    monkeypatch.setattr(verification, "solver_ready", lambda: (False, "no browser"))
+    settings = _settings(proxy_host="gate", proxy_port=1, proxy_login="u",
+                         proxy_password="p")
+    assert verification.engine_env(settings)["TS_PROXY"] == ""
 
 
 def test_custom_command_skips_the_solver_check(monkeypatch):

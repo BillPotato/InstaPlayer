@@ -28,6 +28,7 @@ import logging
 import os
 import shlex
 import sys
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -147,7 +148,7 @@ def solver_argv(settings: Settings) -> list[str]:
         else:
             return shlex.split(override, posix=os.name != "nt")
 
-    return [
+    argv = [
         sys.executable,
         "-m",
         # Not turnstile_solver directly: the challenge page doesn't reliably
@@ -164,6 +165,45 @@ def solver_argv(settings: Settings) -> list[str]:
         "--diagnostics-dir",
         str(settings.data_dir / "verify-diagnostics"),
     ]
+    # The proxy is deliberately *not* passed here: argv is visible in `ps` and
+    # is echoed back by status_report. It travels in the environment instead.
+    return argv
+
+
+def proxy_url(settings: Settings) -> str | None:
+    """The solver's proxy as a URL, from either configuration form.
+
+    ``VERIFY_PROXY`` wins if set; otherwise the four ``PROXY_*`` parts are
+    assembled, quoting the credentials so a password containing ``@`` or ``:``
+    survives — which is why the split form exists.
+    """
+    explicit = (settings.verify_proxy or "").strip()
+    if explicit:
+        return explicit
+    host = (settings.proxy_host or "").strip()
+    if not host:
+        return None
+
+    scheme = (settings.proxy_scheme or "http").strip()
+    port = f":{settings.proxy_port}" if settings.proxy_port else ""
+    login = (settings.proxy_login or "").strip()
+    if not login:
+        return f"{scheme}://{host}{port}"
+    credentials = urllib.parse.quote(login, safe="")
+    password = (settings.proxy_password or "").strip()
+    if password:
+        credentials += f":{urllib.parse.quote(password, safe='')}"
+    return f"{scheme}://{credentials}@{host}{port}"
+
+
+def proxy_endpoint(settings: Settings) -> str | None:
+    """``host:port`` with no credentials — safe to report and to log."""
+    url = proxy_url(settings)
+    if not url:
+        return None
+    parsed = urllib.parse.urlparse(url)
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.hostname}{port}"
 
 
 def solver_ready() -> tuple[bool, str | None]:
@@ -231,7 +271,7 @@ def engine_env(settings: Settings | None = None) -> dict[str, str]:
         settings = get_settings()
 
     if not settings.auto_verify:
-        return {"SPOTIFLAC_VERIFY_CMD": ""}
+        return {"SPOTIFLAC_VERIFY_CMD": "", "TS_PROXY": "", "TS_TIMEZONE": ""}
 
     custom = bool((settings.verify_command or "").strip())
     if not custom:
@@ -244,9 +284,17 @@ def engine_env(settings: Settings | None = None) -> dict[str, str]:
                 "will fail until a session file is provided manually.",
                 why,
             )
-            return {"SPOTIFLAC_VERIFY_CMD": ""}
+            return {"SPOTIFLAC_VERIFY_CMD": "", "TS_PROXY": "", "TS_TIMEZONE": ""}
 
     env = {"SPOTIFLAC_VERIFY_CMD": json.dumps(solver_argv(settings))}
+
+    # Carried in the environment rather than argv. The password still reaches
+    # the engine and, through it, the solver — that is the point — but the
+    # environment is only readable by this container's own processes, whereas
+    # argv shows up in `ps` and is echoed back by status_report over HTTP.
+    # Set both keys unconditionally, so clearing the setting clears the child's.
+    env["TS_PROXY"] = proxy_url(settings) or ""
+    env["TS_TIMEZONE"] = (settings.verify_timezone or "").strip()
 
     existing = os.environ.get("PYTHONPATH", "")
     root = str(_PACKAGE_ROOT)
@@ -281,6 +329,11 @@ def status_report(settings: Settings) -> dict:
         "installId": (record or {}).get("install_id") or None,
         "sessionPath": str(session_path()),
         "autoVerify": settings.auto_verify,
+        # Endpoint only. The credentials do travel — down the subprocess
+        # chain in the environment — but never into this report, which is
+        # returned over HTTP, nor into argv, which `ps` shows.
+        "proxy": proxy_endpoint(settings),
+        "timezone": (settings.verify_timezone or "").strip() or None,
         "solverReady": ready,
         "solverError": why,
         "solverCommand": solver_argv(settings) if settings.auto_verify else None,

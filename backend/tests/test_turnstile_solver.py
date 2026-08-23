@@ -154,6 +154,45 @@ def test_no_offscreen_parking_on_our_own_xvfb(monkeypatch):
     assert "--window-size=1920,1080" in args
 
 
+def test_proxy_flags():
+    args = SolverConfig(proxy="http://user:pw@gate.example.com:8080").chrome_args()
+    # Credentials must not reach the command line — Chrome ignores them there
+    # and a process list is a poor place for a password.
+    assert "--proxy-server=http://gate.example.com:8080" in args
+    assert not any("user" in a or "pw" in a for a in args)
+    # Loopback must stay direct: the engine's callback lives there.
+    bypass = next(a for a in args if a.startswith("--proxy-bypass-list="))
+    assert "127.0.0.1" in bypass and "localhost" in bypass
+
+
+def test_proxy_parts_splits_credentials():
+    config = SolverConfig(proxy="http://bob:s3cr3t@gate.example.com:8080")
+    assert config.proxy_parts() == ("http://gate.example.com:8080", "bob", "s3cr3t")
+
+
+def test_proxy_parts_without_credentials():
+    assert SolverConfig(proxy="socks5://gate:1080").proxy_parts() == (
+        "socks5://gate:1080", None, None
+    )
+
+
+def test_proxy_parts_tolerates_a_missing_scheme():
+    server, _, _ = SolverConfig(proxy="gate.example.com:8080").proxy_parts()
+    assert server == "http://gate.example.com:8080"
+
+
+def test_percent_encoded_credentials_are_decoded():
+    # Provider passwords routinely contain characters that must be escaped.
+    _, user, password = SolverConfig(
+        proxy="http://u%40mail:p%40ss%3A1@gate:8080"
+    ).proxy_parts()
+    assert (user, password) == ("u@mail", "p@ss:1")
+
+
+def test_no_proxy_flags_when_unset():
+    assert not any("proxy" in a for a in SolverConfig().chrome_args())
+
+
 def test_extra_browser_args_are_appended_last():
     args = SolverConfig(browser_args=("--lang=en-US",)).chrome_args()
     assert args[-1] == "--lang=en-US"

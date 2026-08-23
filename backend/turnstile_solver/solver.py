@@ -581,6 +581,44 @@ class _Session:
                 640 + random.uniform(-40, 40), 400 + random.uniform(-40, 40)
             )
 
+    async def _enable_proxy_auth(self, tab) -> None:
+        """Answer the proxy's auth challenge for this tab.
+
+        ``--proxy-server`` carries no credentials, so Chrome asks over CDP the
+        first time the proxy demands them. Intercepting requests to answer that
+        means every request now needs an explicit continue — miss one and the
+        page simply hangs, so both handlers matter.
+        """
+        _, cdp = _load_nodriver()
+        _, username, password = self.config.proxy_parts()
+        if not username:
+            return
+
+        async def on_auth(event) -> None:
+            with contextlib.suppress(Exception):
+                await tab.send(
+                    cdp.fetch.continue_with_auth(
+                        request_id=event.request_id,
+                        auth_challenge_response=cdp.fetch.AuthChallengeResponse(
+                            response="ProvideCredentials",
+                            username=username,
+                            password=password or "",
+                        ),
+                    )
+                )
+
+        async def on_paused(event) -> None:
+            with contextlib.suppress(Exception):
+                await tab.send(cdp.fetch.continue_request(request_id=event.request_id))
+
+        try:
+            tab.add_handler(cdp.fetch.AuthRequired, on_auth)
+            tab.add_handler(cdp.fetch.RequestPaused, on_paused)
+            await tab.send(cdp.fetch.enable(handle_auth_requests=True))
+            logger.debug("proxy authentication armed")
+        except Exception as exc:
+            logger.warning("could not arm proxy authentication: %s", exc)
+
     async def _open_tab(self):
         """Navigate to the target URL in a *new* tab, retrying CDP failures.
 
@@ -594,9 +632,19 @@ class _Session:
         Older nodriver builds don't take ``new_tab``; fall back to the plain
         call there rather than hard-failing.
         """
+        _, cdp = _load_nodriver()
+        _, proxy_user, _ = self.config.proxy_parts()
+
         last_exc: Exception | None = None
         for attempt in range(1, 4):
             try:
+                if proxy_user:
+                    # Auth has to be armed before the first request leaves, so
+                    # land on a blank page, wire it up, then navigate.
+                    tab = await self.browser.get("about:blank", new_tab=True)
+                    await self._enable_proxy_auth(tab)
+                    await tab.send(cdp.page.navigate(self.url))
+                    return tab
                 try:
                     return await self.browser.get(self.url, new_tab=True)
                 except TypeError:
