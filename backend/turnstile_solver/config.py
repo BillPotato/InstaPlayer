@@ -518,6 +518,16 @@ class SolverConfig:
             # at all* is a stronger bot signal than one reporting a software
             # rasteriser: real machines essentially always have some WebGL.
             "--enable-unsafe-swiftshader",
+            # Chrome's own chatter — update checks, sync, the GCM push
+            # channel, domain reliability reports — is useless to a solver and
+            # goes out over whatever proxy the browser is using. Measured at
+            # ~113 KB per solve across five Google hosts, on a connection
+            # billed by the gigabyte. Sites cannot observe any of it, so
+            # switching it off costs nothing.
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--disable-sync",
         ]
         if headless:
             # No window to hide, and no GPU worth initialising.
