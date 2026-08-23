@@ -71,7 +71,7 @@ except `API_KEY`.
 | `PROXY_HOST` / `PROXY_PORT` / `PROXY_LOGIN` / `PROXY_PASSWORD` / `PROXY_SCHEME` | *(unset)* | Proxy for the solver's browser, as parts so credentials need no escaping. Usually what makes verification work on a cloud host. Browser only — downloads stay direct |
 | `VERIFY_PROXY` | *(unset)* | The same thing as one `scheme://[user:pass@]host:port` URL; wins over the parts above |
 | `PROXY_ENGINE` | `false` | Send the engine's own requests through the proxy too. Set it whenever `PROXY_HOST` is set — without it every signed request fails with a 401 |
-| `PROXY_HOSTS` | *(empty)* | Host suffixes that actually use the paid exit; everything else goes direct. Empty means log-only — see [keeping the proxy bill down](#keeping-the-proxy-bill-down) |
+| `PROXY_HOSTS` | `spotbye.qzz.io,qobuz.com` | Host suffixes that actually use the paid exit; everything else goes direct. Empty means log-only — see [keeping the proxy bill down](#keeping-the-proxy-bill-down) |
 | `PROXY_SPLIT_PORT` | `18080` | Loopback port for the splitter |
 | `VERIFY_TIMEZONE` | `auto` | Timezone the browser reports. `auto` matches the proxy exit's location; a zone name pins it; empty leaves the container's `TZ` |
 
@@ -197,20 +197,30 @@ engine ──> splitter ──┬── PROXY_HOSTS      → residential proxy  
                       └── everything else  → direct              (the FLACs)
 ```
 
-Discover what belongs in the list by leaving it **empty** for one download. Everything then
-goes direct and the splitter logs each host with the bytes it carried:
+The default list was measured rather than guessed, and should need no changes:
+
+| Host | Route | Why |
+|---|---|---|
+| `*.spotbye.qzz.io` | **proxied** | every community endpoint — `verify.` for the captcha exchange, `tdl-oss.` and `amz-oss.` for the signed provider APIs. One suffix covers them, and survives the rotation those names imply |
+| `qobuz.com` | **proxied** | its API answers a datacentre address with an Akamai `403` |
+| `song.link` | direct | 59 KB and works fine unproxied |
+| Spotify metadata hosts | direct | ~79 KB, work fine unproxied |
+| audio CDNs | direct | tens of MB per track — the whole point |
+
+That's roughly **75 KB per download** on the metered route, against 30–50 MB if you proxied
+everything.
+
+To re-measure — after an upstream change, say — set `PROXY_HOSTS` empty. The splitter then
+sends everything direct and logs each host with the bytes it carried:
 
 ```
-direct   sp-pr-cf.audio.tidal.com — 31402.7 KB
-direct   api.example.com — 4.1 KB
+direct   tdl-oss.spotbye.qzz.io — 8.7 KB
+direct   song.link — 59.2 KB
 ```
 
-The small entries are the API calls that need the exit — put those in `PROXY_HOSTS`; leave
-the large ones out. Matching is by domain boundary, so `example.com` covers
-`api.example.com` but not `notexample.com`.
-
-Note that with the list empty you'll still see the 401: nothing is reaching the exit yet.
-That pass is for measurement, not for working downloads.
+The small entries appearing next to a 401 are what needs the exit. Matching is by domain
+boundary, so `example.com` covers `api.example.com` but not `notexample.com`. Note downloads
+will fail during a measurement pass: nothing is reaching the exit yet.
 
 The browser's timezone follows the proxy automatically (`VERIFY_TIMEZONE=auto`, the
 default): it resolves the exit's location and matches it, so a US proxy on a Singapore host

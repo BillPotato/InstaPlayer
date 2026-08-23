@@ -92,7 +92,18 @@ class Settings(BaseSettings):
     # Host suffixes that must leave through the residential proxy. Matching is
     # by domain boundary: "example.com" covers "api.example.com" but not
     # "notexample.com".
-    proxy_hosts: str = ""
+    #
+    # The default was measured, not guessed. Every community endpoint lives
+    # under spotbye.qzz.io — verify. for the captcha exchange, tdl-oss. and
+    # amz-oss. for the signed provider APIs — so one suffix covers them and
+    # survives the rotation those names imply. qobuz.com is there because its
+    # API answers a datacentre address with an Akamai 403.
+    #
+    # Deliberately excluded, because they work direct and are far larger:
+    # song.link, Spotify's metadata hosts, and every audio CDN.
+    #
+    # Set it empty to put the splitter in log-only mode and re-measure.
+    proxy_hosts: str = "spotbye.qzz.io,qobuz.com"
 
     # Loopback port for the splitter. Only needs changing on a clash.
     proxy_split_port: int = 18080
