@@ -23,8 +23,12 @@ delivery happens the moment the solve returns.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import logging
+import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -73,6 +77,60 @@ def deliver_grant(callback: str, grant: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def _endpoint_of(proxy: str) -> str:
+    """``host:port`` — never log the credentials."""
+    parsed = urllib.parse.urlparse(proxy)
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.hostname}{port}"
+
+
+def egress_timezone(proxy: str | None) -> str | None:
+    """The IANA zone of the address our traffic actually leaves from.
+
+    Resolved *through the proxy*, so with one configured this is the exit's
+    location rather than the container's. Best-effort: a failure here just
+    means the browser keeps the container's timezone.
+    """
+    import urllib.error
+
+    try:
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+            if proxy
+            else urllib.request.ProxyHandler({})
+        )
+        with opener.open("https://ipinfo.io/json", timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        log.warning("could not resolve the egress timezone (%s); leaving it alone", exc)
+        return None
+    zone = (data.get("timezone") or "").strip()
+    if zone:
+        log.info("egress is %s (%s) — timezone %s", data.get("ip"), data.get("country"), zone)
+    return zone or None
+
+
+def apply_timezone(setting: str, proxy: str | None) -> None:
+    """Point the browser's clock at the right place before it launches.
+
+    Chrome reads ``TZ`` from its environment, and it inherits ours — so
+    setting it here reaches the browser without touching the container's own
+    timezone, which the server's logs still use. This matters because scoring
+    compares the browser's clock against the address the request came from,
+    and through a proxy those are different places by definition.
+    """
+    setting = (setting or "").strip()
+    if not setting:
+        return
+    zone = egress_timezone(proxy) if setting.lower() == "auto" else setting
+    if not zone:
+        return
+    os.environ["TZ"] = zone
+    with contextlib.suppress(AttributeError):  # tzset is Unix-only
+        time.tzset()
+    log.info("browser timezone set to %s", zone)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.verify_cli",
@@ -100,8 +158,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hold-open", type=float, default=5.0)
     parser.add_argument(
         "--proxy",
+        default=os.environ.get("TS_PROXY") or None,
         help="route the browser through scheme://[user:pass@]host:port "
-        "(downloads stay direct)",
+        "(downloads stay direct). Defaults to $TS_PROXY",
+    )
+    parser.add_argument(
+        "--timezone",
+        default=os.environ.get("TS_TIMEZONE") or "",
+        help="timezone the browser reports: a zone name, or 'auto' to match "
+        "whatever address the traffic actually leaves from",
     )
     parser.add_argument("--diagnostics-dir")
     parser.add_argument("--attempts", type=int)
@@ -178,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
         return run_now(args.force)
     if not args.url:
         build_parser().error("give a challenge URL, or use --status / --now")
+
+    # Before the browser starts: it inherits this process's environment.
+    apply_timezone(args.timezone, args.proxy)
+    if args.proxy:
+        log.info("routing the browser through %s", _endpoint_of(args.proxy))
 
     from turnstile_solver import SolverConfig, SolverError, TurnstileSolver
 

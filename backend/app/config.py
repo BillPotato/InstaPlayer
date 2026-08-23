@@ -54,14 +54,29 @@ class Settings(BaseSettings):
     # the page can finish handing the grant back to the engine's callback.
     verify_hold_open: float = 5.0
 
-    # Route the solver's browser through a proxy —
-    # "scheme://[user:pass@]host:port". The captcha scores the client, and a
-    # datacentre address is refused where a residential one passes, so on a
-    # cloud host this is what makes verification work at all. Only the browser
-    # uses it; downloads stay on the direct path, which keeps a traffic-billed
-    # proxy cheap. Prefer a sticky session — one solve spans several requests
-    # and they must share an exit address. Set TZ to match the exit's country.
+    # Route the solver's browser through a proxy. The captcha scores the
+    # client, and a datacentre address is refused where a residential one
+    # passes, so on a cloud host this is what makes verification work at all.
+    # Only the browser uses it; downloads stay on the direct path, which keeps
+    # a traffic-billed proxy cheap. Prefer a sticky session — one solve spans
+    # several requests and they must share an exit address.
+    #
+    # Give it as four parts (no URL-encoding to get wrong) …
+    proxy_host: str | None = None
+    proxy_port: int | None = None
+    proxy_login: str | None = None
+    proxy_password: str | None = None
+    proxy_scheme: str = "http"
+
+    # … or as one URL, which wins if both are set.
     verify_proxy: str | None = None
+
+    # Timezone the solver's browser reports. Scoring compares it against the
+    # address the request came from, which through a proxy is the *exit's*
+    # location, not the container's — so the container's own TZ is wrong here
+    # by definition. "auto" resolves the exit's zone and matches it; a zone
+    # name pins it; empty leaves the browser on the container's TZ.
+    verify_timezone: str = "auto"
 
     # How long a finished job's files are kept for the device to fetch before
     # the reaper deletes them. The backend stores nothing permanently.
