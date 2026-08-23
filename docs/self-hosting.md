@@ -71,6 +71,8 @@ except `API_KEY`.
 | `PROXY_HOST` / `PROXY_PORT` / `PROXY_LOGIN` / `PROXY_PASSWORD` / `PROXY_SCHEME` | *(unset)* | Proxy for the solver's browser, as parts so credentials need no escaping. Usually what makes verification work on a cloud host. Browser only — downloads stay direct |
 | `VERIFY_PROXY` | *(unset)* | The same thing as one `scheme://[user:pass@]host:port` URL; wins over the parts above |
 | `PROXY_ENGINE` | `false` | Send the engine's own requests through the proxy too. Set it whenever `PROXY_HOST` is set — without it every signed request fails with a 401 |
+| `PROXY_HOSTS` | *(empty)* | Host suffixes that actually use the paid exit; everything else goes direct. Empty means log-only — see [keeping the proxy bill down](#keeping-the-proxy-bill-down) |
+| `PROXY_SPLIT_PORT` | `18080` | Loopback port for the splitter |
 | `VERIFY_TIMEZONE` | `auto` | Timezone the browser reports. `auto` matches the proxy exit's location; a zone name pins it; empty leaves the container's `TZ` |
 
 ---
@@ -184,8 +186,31 @@ bonus gets Qobuz working, since it otherwise answers a datacentre address with a
 `403`. A rotating proxy defeats the whole arrangement: the exit changes between solving and
 signing, so the mismatch persists.
 
-The cost is bandwidth — track downloads take the same route — so watch the meter if your
-provider bills by traffic.
+### Keeping the proxy bill down
+
+Only the signed API calls need the residential exit; the audio does not, and it is thousands
+of times larger. So the engine is pointed at a **local splitter** rather than the paid proxy
+directly, and only the hosts in `PROXY_HOSTS` are forwarded upstream:
+
+```
+engine ──> splitter ──┬── PROXY_HOSTS      → residential proxy   (a few KB)
+                      └── everything else  → direct              (the FLACs)
+```
+
+Discover what belongs in the list by leaving it **empty** for one download. Everything then
+goes direct and the splitter logs each host with the bytes it carried:
+
+```
+direct   sp-pr-cf.audio.tidal.com — 31402.7 KB
+direct   api.example.com — 4.1 KB
+```
+
+The small entries are the API calls that need the exit — put those in `PROXY_HOSTS`; leave
+the large ones out. Matching is by domain boundary, so `example.com` covers
+`api.example.com` but not `notexample.com`.
+
+Note that with the list empty you'll still see the 401: nothing is reaching the exit yet.
+That pass is for measurement, not for working downloads.
 
 The browser's timezone follows the proxy automatically (`VERIFY_TIMEZONE=auto`, the
 default): it resolves the exit's location and matches it, so a US proxy on a Singapore host

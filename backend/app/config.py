@@ -82,9 +82,20 @@ class Settings(BaseSettings):
     # address and the mismatch simply moves around. It also gets Qobuz working
     # from a datacentre host, which otherwise returns an Akamai 403.
     #
-    # Costs bandwidth: track downloads take the same route, so watch the
-    # proxy's meter if it bills by traffic.
+    # Routed through a local splitter (app/proxy_splitter.py) so only the
+    # hosts named in PROXY_HOSTS actually use the paid exit; everything else,
+    # notably the audio, goes direct. With PROXY_HOSTS empty the splitter
+    # sends everything direct and just logs what the engine contacts, which
+    # is how you find out what belongs in the list.
     proxy_engine: bool = False
+
+    # Host suffixes that must leave through the residential proxy. Matching is
+    # by domain boundary: "example.com" covers "api.example.com" but not
+    # "notexample.com".
+    proxy_hosts: str = ""
+
+    # Loopback port for the splitter. Only needs changing on a clash.
+    proxy_split_port: int = 18080
 
     # Timezone the solver's browser reports. Scoring compares it against the
     # address the request came from, which through a proxy is the *exit's*

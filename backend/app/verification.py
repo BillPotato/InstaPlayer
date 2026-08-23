@@ -297,15 +297,25 @@ def engine_env(settings: Settings | None = None) -> dict[str, str]:
     env["TS_PROXY"] = proxy or ""
     env["TS_TIMEZONE"] = (settings.verify_timezone or "").strip()
 
-    # Go's default transport honours these, so the engine's own community
-    # calls leave from the same address that solved the captcha — which is
-    # what the API's signature check appears to require. Loopback is excluded
-    # so the engine can still reach its own verification callback.
+    # Go's default transport honours these, so the engine's community calls
+    # leave from the same address that solved the captcha — which the API's
+    # signature check requires. It points at the local splitter rather than
+    # the paid proxy directly, so only PROXY_HOSTS pay for the exit and the
+    # audio goes direct. Loopback is excluded so the engine can still reach
+    # its own verification callback.
     if proxy and settings.proxy_engine:
-        env["HTTP_PROXY"] = env["HTTPS_PROXY"] = proxy
-        env["http_proxy"] = env["https_proxy"] = proxy
+        from . import proxy_splitter
+
+        hosts = tuple(h.strip() for h in settings.proxy_hosts.split(",") if h.strip())
+        local = proxy_splitter.ensure_running(settings.proxy_split_port, proxy, hosts)
+        env["HTTP_PROXY"] = env["HTTPS_PROXY"] = local
+        env["http_proxy"] = env["https_proxy"] = local
         env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost,::1"
-        log.info("routing the engine through %s as well", proxy_endpoint(settings))
+        log.info(
+            "engine routed via the local splitter; %s",
+            f"upstream for {', '.join(hosts)}" if hosts
+            else "LOG-ONLY (nothing upstream yet — set PROXY_HOSTS)",
+        )
 
     existing = os.environ.get("PYTHONPATH", "")
     root = str(_PACKAGE_ROOT)

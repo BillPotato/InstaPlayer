@@ -224,13 +224,28 @@ def test_engine_proxy_is_off_by_default(monkeypatch):
     assert "HTTPS_PROXY" not in env
 
 
-def test_engine_proxy_when_enabled(monkeypatch):
+def test_engine_proxy_points_at_the_local_splitter(monkeypatch):
     monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
-    env = verification.engine_env(
-        _settings(proxy_host="gate", proxy_port=1, proxy_engine=True)
-    )
-    assert env["HTTPS_PROXY"] == "http://gate:1"
-    assert env["https_proxy"] == "http://gate:1"  # Go checks both cases
+    started = {}
+
+    def fake_ensure(port, upstream, hosts):
+        started.update(port=port, upstream=upstream, hosts=hosts)
+        return f"http://127.0.0.1:{port}"
+
+    from app import proxy_splitter
+
+    monkeypatch.setattr(proxy_splitter, "ensure_running", fake_ensure)
+    env = verification.engine_env(_settings(
+        proxy_host="gate", proxy_port=1, proxy_engine=True,
+        proxy_hosts="api.example.com, other.net", proxy_split_port=19999,
+    ))
+
+    # The engine talks to the splitter, never to the paid proxy directly —
+    # that's what keeps the audio off the metered route.
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:19999"
+    assert env["https_proxy"] == "http://127.0.0.1:19999"  # Go checks both cases
+    assert started["upstream"] == "http://gate:1"
+    assert started["hosts"] == ("api.example.com", "other.net")
     # The engine still has to reach its own loopback callback.
     assert "127.0.0.1" in env["NO_PROXY"]
 
