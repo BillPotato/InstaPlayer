@@ -102,6 +102,18 @@ def test_site_isolation_flag_is_dropped_by_default():
     )
 
 
+def test_chrome_phones_home_to_nobody():
+    # Measured at ~113 KB per solve over a proxy billed by the gigabyte, and
+    # no site can see any of it.
+    args = SolverConfig().chrome_args()
+    for flag in (
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-sync",
+    ):
+        assert flag in args
+
+
 def test_throttling_is_disabled_in_every_mode():
     # A throttled renderer never runs the countdown the challenge page hides
     # its widget behind, so no captcha ever appears.
