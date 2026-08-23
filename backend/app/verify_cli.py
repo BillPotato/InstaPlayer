@@ -153,6 +153,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="mint a session now (downloads one track, which is what triggers it)",
     )
     parser.add_argument(
+        "--fingerprint",
+        action="store_true",
+        help="report the egress address and browser clock, using the app's own "
+        "proxy and timezone settings",
+    )
+    parser.add_argument(
         "--force", action="store_true", help="with --now, discard the current session first"
     )
     parser.add_argument("--hold-open", type=float, default=5.0)
@@ -190,6 +196,34 @@ def run_status() -> int:
 
     print(_json.dumps(_report(get_settings()), indent=2))
     return 0
+
+
+def run_fingerprint() -> int:
+    """Report the egress address, through the configured proxy.
+
+    The solver's own self-test takes a proxy on the command line and knows
+    nothing about this application's settings, and ``TS_PROXY`` is set for the
+    solver's subprocess rather than for a shell — so run from a terminal it
+    would silently measure the *unproxied* address and look like the proxy
+    wasn't working. This reads the same configuration a real verification uses.
+    """
+    from turnstile_solver import selftest
+
+    from . import verification
+    from .config import get_settings
+
+    settings = get_settings()
+    proxy = verification.proxy_url(settings)
+    if proxy:
+        log.info("using the configured proxy %s", _endpoint_of(proxy))
+    else:
+        log.warning("no proxy configured — this reports the host's own address")
+    apply_timezone(settings.verify_timezone, proxy)
+
+    argv = ["--fingerprint"]
+    if proxy:
+        argv += ["--proxy", proxy]
+    return selftest.main(argv)
 
 
 def run_now(force: bool) -> int:
@@ -239,10 +273,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.status:
         return run_status()
+    if args.fingerprint:
+        return run_fingerprint()
     if args.now:
         return run_now(args.force)
     if not args.url:
-        build_parser().error("give a challenge URL, or use --status / --now")
+        build_parser().error(
+            "give a challenge URL, or use --status / --fingerprint / --now"
+        )
 
     # Before the browser starts: it inherits this process's environment.
     apply_timezone(args.timezone, args.proxy)
