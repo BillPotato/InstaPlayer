@@ -293,8 +293,19 @@ def engine_env(settings: Settings | None = None) -> dict[str, str]:
     # environment is only readable by this container's own processes, whereas
     # argv shows up in `ps` and is echoed back by status_report over HTTP.
     # Set both keys unconditionally, so clearing the setting clears the child's.
-    env["TS_PROXY"] = proxy_url(settings) or ""
+    proxy = proxy_url(settings)
+    env["TS_PROXY"] = proxy or ""
     env["TS_TIMEZONE"] = (settings.verify_timezone or "").strip()
+
+    # Go's default transport honours these, so the engine's own community
+    # calls leave from the same address that solved the captcha — which is
+    # what the API's signature check appears to require. Loopback is excluded
+    # so the engine can still reach its own verification callback.
+    if proxy and settings.proxy_engine:
+        env["HTTP_PROXY"] = env["HTTPS_PROXY"] = proxy
+        env["http_proxy"] = env["https_proxy"] = proxy
+        env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost,::1"
+        log.info("routing the engine through %s as well", proxy_endpoint(settings))
 
     existing = os.environ.get("PYTHONPATH", "")
     root = str(_PACKAGE_ROOT)

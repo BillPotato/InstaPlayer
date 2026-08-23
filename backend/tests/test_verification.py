@@ -217,6 +217,30 @@ def test_credentials_never_reach_argv_or_the_report(monkeypatch):
     assert verification.engine_env(settings)["TS_PROXY"].endswith("@gate:823")
 
 
+def test_engine_proxy_is_off_by_default(monkeypatch):
+    monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
+    env = verification.engine_env(_settings(proxy_host="gate", proxy_port=1))
+    # Downloads would otherwise go through a metered proxy.
+    assert "HTTPS_PROXY" not in env
+
+
+def test_engine_proxy_when_enabled(monkeypatch):
+    monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
+    env = verification.engine_env(
+        _settings(proxy_host="gate", proxy_port=1, proxy_engine=True)
+    )
+    assert env["HTTPS_PROXY"] == "http://gate:1"
+    assert env["https_proxy"] == "http://gate:1"  # Go checks both cases
+    # The engine still has to reach its own loopback callback.
+    assert "127.0.0.1" in env["NO_PROXY"]
+
+
+def test_engine_proxy_needs_a_proxy(monkeypatch):
+    monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
+    env = verification.engine_env(_settings(proxy_engine=True))
+    assert "HTTPS_PROXY" not in env
+
+
 def test_env_clears_a_stale_proxy(monkeypatch):
     monkeypatch.setattr(verification, "solver_ready", lambda: (True, None))
     env = verification.engine_env(_settings())

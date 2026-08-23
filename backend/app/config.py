@@ -71,6 +71,18 @@ class Settings(BaseSettings):
     # … or as one URL, which wins if both are set.
     verify_proxy: str | None = None
 
+    # Also send the *engine's* traffic through that proxy, not just the
+    # browser's. The community API signs requests against the session, and it
+    # appears to reject one presented from an address other than the one that
+    # solved the captcha ("Signed request validation failed"), so solving
+    # through a proxy while signing from the host's own address fails. Needs a
+    # STICKY proxy session, or each request exits from a different address and
+    # the mismatch persists.
+    #
+    # Costs bandwidth: track downloads go the same way. Leave off unless the
+    # 401 is what you're fighting, and watch the proxy's traffic meter.
+    proxy_engine: bool = False
+
     # Timezone the solver's browser reports. Scoring compares it against the
     # address the request came from, which through a proxy is the *exit's*
     # location, not the container's — so the container's own TZ is wrong here

@@ -122,6 +122,26 @@ def single_solver(timeout: float = 240.0):
         handle.close()
 
 
+def callback_is_open(callback: str, timeout: float = 2.0) -> bool:
+    """Is the engine still listening for this challenge's grant?
+
+    While a solve is queued behind another, the engine can finish with that
+    challenge — usually because the page's own redirect already delivered the
+    grant — and close its callback. Solving anyway costs a minute and, on a
+    metered proxy, real bandwidth, to produce a grant with nowhere to go.
+    """
+    import socket
+
+    parsed = urllib.parse.urlparse(callback)
+    if not parsed.hostname or not parsed.port:
+        return True  # can't tell; assume it's worth trying
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port), timeout):
+            return True
+    except OSError:
+        return False
+
+
 def _endpoint_of(proxy: str) -> str:
     """``host:port`` — never log the credentials."""
     parsed = urllib.parse.urlparse(proxy)
@@ -356,6 +376,12 @@ def _solve_and_deliver(args) -> int:
     )
 
     callback = callback_url(args.url)
+    if callback and not callback_is_open(callback):
+        log.info(
+            "the engine has already closed this challenge's callback "
+            "(its page most likely delivered the grant itself) — nothing to do"
+        )
+        return 0
     if callback is None:
         log.warning("challenge URL carries no cb= callback; the engine can only "
                     "receive the grant if the page redirects on its own")
