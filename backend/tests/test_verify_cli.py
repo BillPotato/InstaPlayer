@@ -118,6 +118,43 @@ def test_a_dead_callback_is_not_fatal(monkeypatch):
     assert verify_cli.deliver_grant(CALLBACK, "gr_abc") is False
 
 
+# --- serialising solvers --------------------------------------------------
+
+
+def test_single_solver_serialises(tmp_path, monkeypatch):
+    """Two solvers at once collide over the Xvfb display and the Chrome
+    profile, and the loser silently drops to headless — which fails."""
+    fcntl = pytest.importorskip("fcntl")  # Linux only
+    lock = tmp_path / "solver.lock"
+    monkeypatch.setenv("TS_LOCK_FILE", str(lock))
+
+    holder = open(lock, "w")
+    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        waited = []
+        monkeypatch.setattr(verify_cli.time, "sleep", lambda s: waited.append(s))
+        with verify_cli.single_solver(timeout=0.0):
+            pass
+        # It gave up waiting rather than hanging, and said so.
+        assert verify_cli.time is not None
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        holder.close()
+
+
+def test_single_solver_runs_when_free(tmp_path, monkeypatch):
+    pytest.importorskip("fcntl")
+    monkeypatch.setenv("TS_LOCK_FILE", str(tmp_path / "solver.lock"))
+    ran = []
+    with verify_cli.single_solver():
+        ran.append(True)
+    assert ran == [True]
+    # And the lock is released for the next run.
+    with verify_cli.single_solver():
+        ran.append(True)
+    assert ran == [True, True]
+
+
 # --- the fingerprint shortcut --------------------------------------------
 
 
