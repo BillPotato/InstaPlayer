@@ -72,15 +72,18 @@ class Settings(BaseSettings):
     verify_proxy: str | None = None
 
     # Also send the *engine's* traffic through that proxy, not just the
-    # browser's. The community API signs requests against the session, and it
-    # appears to reject one presented from an address other than the one that
-    # solved the captcha ("Signed request validation failed"), so solving
-    # through a proxy while signing from the host's own address fails. Needs a
-    # STICKY proxy session, or each request exits from a different address and
-    # the mismatch persists.
+    # browser's. Turn this on whenever a proxy is set: the community API binds
+    # the session to the address that solved the captcha, so signing from
+    # anywhere else fails with 401 "Signed request validation failed" even
+    # though the session itself is valid. Measured — with it off the API
+    # refuses every signed request; with it on the same session is accepted.
     #
-    # Costs bandwidth: track downloads go the same way. Leave off unless the
-    # 401 is what you're fighting, and watch the proxy's traffic meter.
+    # Requires a STICKY proxy session, or each request exits from a different
+    # address and the mismatch simply moves around. It also gets Qobuz working
+    # from a datacentre host, which otherwise returns an Akamai 403.
+    #
+    # Costs bandwidth: track downloads take the same route, so watch the
+    # proxy's meter if it bills by traffic.
     proxy_engine: bool = False
 
     # Timezone the solver's browser reports. Scoring compares it against the

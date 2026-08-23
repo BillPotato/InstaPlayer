@@ -70,6 +70,7 @@ except `API_KEY`.
 | `VERIFY_HOLD_OPEN` | `5` | Seconds the solver keeps the browser open after passing, so the page can hand the grant back to the engine |
 | `PROXY_HOST` / `PROXY_PORT` / `PROXY_LOGIN` / `PROXY_PASSWORD` / `PROXY_SCHEME` | *(unset)* | Proxy for the solver's browser, as parts so credentials need no escaping. Usually what makes verification work on a cloud host. Browser only — downloads stay direct |
 | `VERIFY_PROXY` | *(unset)* | The same thing as one `scheme://[user:pass@]host:port` URL; wins over the parts above |
+| `PROXY_ENGINE` | `false` | Send the engine's own requests through the proxy too. Set it whenever `PROXY_HOST` is set — without it every signed request fails with a 401 |
 | `VERIFY_TIMEZONE` | `auto` | Timezone the browser reports. `auto` matches the proxy exit's location; a zone name pins it; empty leaves the container's `TZ` |
 
 ---
@@ -167,7 +168,24 @@ PROXY_HOST=gw.provider.com
 PROXY_PORT=10000
 PROXY_LOGIN=your-login
 PROXY_PASSWORD=your-password
+PROXY_ENGINE=true
 ```
+
+**Both halves are required, and the session must be sticky.** The community API binds a
+session to the address that solved the captcha, so routing only the browser gets you a
+valid session that every signed request then rejects:
+
+```
+Tidal community API status 401: {"detail":"Signed request validation failed."}
+```
+
+`PROXY_ENGINE=true` sends the engine's own calls the same way, which clears that — and as a
+bonus gets Qobuz working, since it otherwise answers a datacentre address with an Akamai
+`403`. A rotating proxy defeats the whole arrangement: the exit changes between solving and
+signing, so the mismatch persists.
+
+The cost is bandwidth — track downloads take the same route — so watch the meter if your
+provider bills by traffic.
 
 The browser's timezone follows the proxy automatically (`VERIFY_TIMEZONE=auto`, the
 default): it resolves the exit's location and matches it, so a US proxy on a Singapore host
