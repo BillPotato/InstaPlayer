@@ -140,6 +140,20 @@ def _terminate_xvfb() -> None:
         process.wait(timeout=3)
 
 
+def _clear_stale_display_lock(display: str) -> None:
+    """Remove ``/tmp/.X<n>-lock`` when no X server answers on that display."""
+    number = display.lstrip(":").split(".")[0]
+    if not number.isdigit() or _display_socket_exists(display):
+        return
+    lock = f"/tmp/.X{number}-lock"
+    try:
+        if os.path.exists(lock):
+            os.unlink(lock)
+            logger.debug("removed stale %s", lock)
+    except OSError as exc:
+        logger.debug("could not remove %s: %s", lock, exc)
+
+
 def _display_socket_exists(display: str) -> bool:
     """Is an X server already listening on ``display``?
 
@@ -182,6 +196,13 @@ def start_virtual_display(
         if path is None:
             logger.debug("%s not on PATH; cannot start a virtual display", binary)
             return False
+
+        # A previous solver's Xvfb leaves /tmp/.X<n>-lock behind when it is
+        # killed rather than closed. The next one then refuses to start on a
+        # display nothing is actually serving, and we drop to headless — the
+        # one browser mode a challenge reliably detects. Clear the lock when
+        # no socket answers for it.
+        _clear_stale_display_lock(display)
 
         try:
             process = subprocess.Popen(

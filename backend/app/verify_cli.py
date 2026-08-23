@@ -77,6 +77,51 @@ def deliver_grant(callback: str, grant: str, timeout: float = 15.0) -> bool:
     return False
 
 
+@contextlib.contextmanager
+def single_solver(timeout: float = 240.0):
+    """Let only one solver run at a time, machine-wide.
+
+    The engine can start a second verification while the first solver is still
+    working — its callback times out, or a signed request comes back 401 and
+    it re-verifies. Two solvers then collide over the two things they cannot
+    share: the Xvfb display, where the loser silently falls back to Chrome's
+    headless mode and fails a challenge it would otherwise pass, and the
+    Chrome profile directory, which Chrome locks.
+
+    Waiting is right rather than exiting: the later run is the one the engine
+    is currently listening for, so it should proceed once the earlier finishes.
+    Best-effort — a platform without ``fcntl`` just runs unserialised.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows dev boxes
+        yield
+        return
+
+    path = os.environ.get("TS_LOCK_FILE") or "/tmp/turnstile-solver.lock"
+    handle = open(path, "w")
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    log.warning(
+                        "another solver has held the lock for %.0fs; proceeding "
+                        "anyway, which may collide with it", timeout,
+                    )
+                    break
+                log.info("another solver is running; waiting for it to finish")
+                time.sleep(2.0)
+        yield
+    finally:
+        with contextlib.suppress(Exception):
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+
 def _endpoint_of(proxy: str) -> str:
     """``host:port`` — never log the credentials."""
     parsed = urllib.parse.urlparse(proxy)
@@ -282,6 +327,11 @@ def main(argv: list[str] | None = None) -> int:
             "give a challenge URL, or use --status / --fingerprint / --now"
         )
 
+    with single_solver():
+        return _solve_and_deliver(args)
+
+
+def _solve_and_deliver(args) -> int:
     # Before the browser starts: it inherits this process's environment.
     apply_timezone(args.timezone, args.proxy)
     if args.proxy:
